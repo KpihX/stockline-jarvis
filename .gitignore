@@ -1,0 +1,29 @@
+# dependencies & builds
+node_modules
+dist
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# secrets: never commit your keys
+.env
+.env.*
+!.env.example
+
+# local databases
+*.db
+*.db-*
+apps/*/data/
+
+# company data (shipped in your team zip; too big for git)
+data/seed/
+
+.DS_Store
+
+# reference material kept out of the submission (previous prototype, downloaded decks)
+refs/
+
+# agent context file: never committed (project rule)
+AGENTS.md

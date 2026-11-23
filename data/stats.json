@@ -1,0 +1,42 @@
+{
+  "slug": "alpes-restauration-grenoble",
+  "name": "Alpes Restauration",
+  "trade": "généraliste CHR montagne",
+  "region": "Grenoble, Isère et stations de l'Oisans, de Belledonne et du Vercors",
+  "city": "Saint-Égrève",
+  "employees": 40,
+  "clients": 94,
+  "products": 74,
+  "suppliers": 10,
+  "orders": 24454,
+  "stockoutPct": 0.1,
+  "worstStockouts": [
+    "SAL-BAT:27",
+    "BOE-HAC:22",
+    "BOE-ENT:15",
+    "BOE-BAV:15",
+    "BOE-BOU:14"
+  ],
+  "seedMB": 100.5,
+  "generationSeconds": 5.9,
+  "counts": {
+    "products": 74,
+    "clients": 94,
+    "clientPrices": 126,
+    "suppliers": 10,
+    "supplierPrices": 81,
+    "lots": 27125,
+    "stockMovements": 220313,
+    "orders": 24454,
+    "purchaseOrders": 4948,
+    "invoices": 9537,
+    "payments": 7142,
+    "routes": 6,
+    "routeRuns": 3702,
+    "clientEvents": 3341,
+    "supplierEvents": 858,
+    "tags": 27,
+    "priceRules": 7,
+    "contextEntries": 1114
+  }
+}
