@@ -326,7 +326,7 @@ class VoiceConnection:
             working = [*base, ChatMessage(role="user", content=content)]
             session_block = await self.freeze_block(conv)
             llm_start = time.perf_counter()
-            async for ev in run_agent(working, llm=llm, tools=all_tools(), mode="voice", actor_name=conv.actor_name, caller=conv.caller, session_block=session_block, announce_tools=True):
+            async for ev in run_agent(working, llm=llm, tools=all_tools(), mode="voice", actor_name=conv.actor_name, caller=conv.caller, session_block=session_block, announce_tools=turn_hints.TOOL_START):
                 match ev:
                     case TextEvent(delta=delta):
                         if timings.llm_first_token_ms is None:

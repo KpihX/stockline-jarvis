@@ -80,14 +80,15 @@ async def test_trivial_turn_has_no_filler_even_if_the_model_uses_a_tool(session)
     conn, conv, tts = session([[call()], [LLMText("Avec plaisir.")]])
     await conn.run_turn(conv, text="merci beaucoup")
     assert tts.said[1:] == ["Avec plaisir."] and tts.said[0] in filler_texts()  # the tool-call fallback still covers an unexpected tool round
-    conn2, conv2, tts2 = session([[LLMText("Avec plaisir. ")]])
+    n = len(tts.said)
+    conn2, conv2, _ = session([[LLMText("Avec plaisir. ")]])  # (same fake TTS)
     await conn2.run_turn(conv2, text="merci beaucoup")
-    assert tts2.said == ["Avec plaisir."]
+    assert tts.said[n:] == ["Avec plaisir."]  # no tool, trivial turn: no filler at all
 
 
 async def test_second_tool_turn_right_after_a_filler_skips_the_early_filler(session, monkeypatch):  # noqa: F811
     seen = []
-    conn, conv, tts = session([[call()], [LLMText("Oui. ")], [LLMText("Voilà. ")]])
+    conn, conv, tts = session([[call()], [LLMText("Oui. ")]])
     real = voice_session.Speaker.say_filler
 
     def spy(self):
@@ -97,8 +98,9 @@ async def test_second_tool_turn_right_after_a_filler_skips_the_early_filler(sess
     monkeypatch.setattr(voice_session.Speaker, "say_filler", spy)
     await conn.run_turn(conv, text="il vous reste du beaufort ?")  # tool turn: a filler
     assert len(seen) == 1 and conn.since_filler() is not None
+    monkeypatch.setattr(voice_session, "get_llm_client", lambda: ScriptedLLM([[LLMText("Voilà. ")]]))
     await conn.run_turn(conv, text="et du comté, il vous en reste ?")  # 'likely tools' but a filler played seconds ago: no new one
-    assert len(seen) == 1
+    assert len(seen) == 1 and tts.said[-1] == "Voilà."
 
 
 async def test_model_text_before_its_first_tool_is_dropped_when_the_filler_already_played(session):  # noqa: F811
