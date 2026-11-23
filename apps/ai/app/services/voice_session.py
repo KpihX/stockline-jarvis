@@ -369,8 +369,9 @@ class VoiceConnection:
                                 lexicon_store.prefetch(caller)
                         self.before_tool(speaker)  # (no-op when ToolStartEvent already did it)
                         await self.send(AgentToolMessage(name=call.name, args=call.arguments))
-                    case ToolResultEvent(name=name, ok=ok, ms=ms):
+                    case ToolResultEvent(name=name, ok=ok, ms=ms, result=result):
                         step_text = ""
+                        sessions.note_commands(conv, result)  # ids of orders created, for the session list / recall
                         await self.send(AgentToolMessage(name=name, ok=ok, ms=ms))
                     case DoneEvent(usage=done_usage):
                         usage = done_usage
