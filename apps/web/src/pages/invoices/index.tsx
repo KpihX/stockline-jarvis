@@ -6,6 +6,7 @@ import { FileText } from "lucide-react";
 import type { InvoiceSummary } from "@kit/shared";
 import { useInvoicesPage } from "@/lib/queries";
 import { useDebounced, useUrlPatch, useUrlState } from "@/lib/url-state";
+import { useAuth } from "@/features/auth/auth-store";
 import {
   Button, DataTable, DateLabel, EmptyState, Money, Mono, Page, PageBody, PageHeader, SearchInput, StatusDot, Tabs, useServerList, type Column,
 } from "@/ui";
@@ -42,6 +43,8 @@ const COLUMNS: Column<InvoiceSummary>[] = [
 ];
 
 export default function InvoicesPage() {
+  const { account } = useAuth();
+  const lockedClient = account?.role === "client" ? (account.entityId ?? undefined) : undefined;
   const navigate = useNavigate();
   const [tab] = useUrlState("tab", "open");
   const patch = useUrlPatch();
@@ -52,7 +55,12 @@ export default function InvoicesPage() {
   // A new tab also drops the column sort (each tab has its own default order).
   const setTab = (id: TabId) => patch({ tab: id === "open" ? "" : id, sort: "" });
 
-  const { data, isLoading, isError, refetch } = useInvoicesPage({ status: current.statuses.join(",") || undefined, q: dq || undefined, ...list.params });
+  const { data, isLoading, isError, refetch } = useInvoicesPage({
+    clientId: lockedClient,
+    status: current.statuses.join(",") || undefined,
+    q: dq || undefined,
+    ...list.params,
+  });
 
   // Tab badges: counts + balances per status over every invoice matching the search (ignoring the tab).
   const stats = useMemo(() => {
@@ -76,7 +84,7 @@ export default function InvoicesPage() {
   return (
     <Page>
       <PageHeader
-        title="Factures"
+        title={lockedClient ? "Mes factures" : "Factures"}
         tabs={
           <Tabs<TabId>
             value={current.id}

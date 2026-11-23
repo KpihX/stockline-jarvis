@@ -5,11 +5,14 @@
  * Agent audio: binary frames between agent_audio_start/end → one Blob → <audio>. Mock TTS → speechSynthesis (fr-FR).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MOCK_TTS_MIME, type CallerRole, type TurnCost, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
+import { MOCK_TTS_MIME, type CallerRole, type SessionDetail, type TurnCost, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
 import { MIN_HOLD_MS } from "@/lib/hold-to-talk";
+import { auth } from "@/features/auth/auth-store";
+import { getAiSession } from "./ai-client";
 import { SegmentPlayer } from "./audio-player";
 import { caller, callerWire, useCaller } from "./caller";
+import { sessionsStore } from "./sessions-store";
 import type { ToolRun } from "./tools";
 
 export type Conn = "connecting" | "ready" | "offline";
@@ -44,7 +47,7 @@ export function useVoiceSession() {
   const [effectiveRole, setEffectiveRole] = useState<CallerRole>(); // what the server enforces (its `ready` answer to our declared identity)
 
   const ws = useRef<WebSocket>();
-  const sessionId = useRef<string>();
+  const sessionId = useRef<string | undefined>(sessionsStore.activeId() ?? undefined);
   const alive = useRef(true);
   const turnSeq = useRef(0);
   const currentTurn = useRef<number>();
@@ -130,9 +133,11 @@ export function useVoiceSession() {
     switch (m.type) {
       case "ready":
         sessionId.current = m.sessionId;
+        sessionsStore.setActiveId(m.sessionId);
         setProviders({ llm: m.llm, stt: m.stt, tts: m.tts, sessionId: m.sessionId });
         setEffectiveRole(m.role);
         setConn("ready");
+        void sessionsStore.refresh();
         break;
       case "transcript": {
         const turn = id;
@@ -194,6 +199,7 @@ export function useVoiceSession() {
         else if (!turnHasAudio.current || !player.current) setActivity((a) => (a === "thinking" ? "idle" : a));
         audioMime.current = undefined;
         currentTurn.current = undefined;
+        void sessionsStore.refresh();
         break;
       case "error":
         setLastError(m.message);
@@ -212,8 +218,15 @@ export function useVoiceSession() {
     const sock = new WebSocket(wsUrl());
     sock.binaryType = "arraybuffer";
     ws.current = sock;
-    // The DECLARED identity (CallerBadge) rides on `start`; the server enforces it and echoes the effective role in `ready`.
-    sock.onopen = () => sock.send(JSON.stringify({ type: "start", sessionId: sessionId.current, ...callerWire(caller.get()) } satisfies VoiceClientMessage));
+    sock.onopen = () => {
+      const sid = sessionsStore.activeId() ?? sessionId.current;
+      sock.send(JSON.stringify({
+        type: "start",
+        sessionId: sid,
+        token: auth.token() ?? undefined,
+        ...callerWire(caller.get()),
+      } satisfies VoiceClientMessage));
+    };
     sock.onmessage = onMessage;
     sock.onclose = () => {
       if (ws.current !== sock) return;
@@ -251,8 +264,55 @@ export function useVoiceSession() {
     setTurns([]);
     setActivity("idle");
     setLastError(undefined);
-    send({ type: "start", sessionId: sessionId.current, ...callerWire(identity) });
+    send({ type: "start", sessionId: sessionId.current, token: auth.token() ?? undefined, ...callerWire(identity) });
   }, [identity, identityKey, send, stopPlayback]);
+
+  // Hydrate voice timeline when reopening an existing session (including turns started in Assistant chat).
+  const hydrateSession = useCallback(async (id: string) => {
+    const d: SessionDetail | null = await getAiSession(id);
+    if (!d) return;
+    const loaded: VoiceTurn[] = [];
+    for (const m of d.messages) {
+      if (m.role === "user") {
+        const clean = m.text.split("\n\n[", 1)[0].trim();
+        if (clean) loaded.push({ id: ++turnSeq.current, caller: { text: clean, at: Date.now(), status: "final", typed: true }, agent: { text: "", tools: [], done: true } });
+      } else if (m.role === "assistant" && m.text.trim()) {
+        const last = loaded[loaded.length - 1];
+        if (last && !last.agent.text) last.agent = { ...last.agent, text: m.text, done: true };
+        else loaded.push({ id: ++turnSeq.current, caller: { text: "…", at: Date.now(), status: "final", typed: true }, agent: { text: m.text, tools: [], done: true } });
+      }
+    }
+    setTurns(loaded);
+  }, []);
+
+  const openSession = useCallback(async (id: string) => {
+    stopPlayback();
+    currentTurn.current = undefined;
+    sessionId.current = id;
+    sessionsStore.setActiveId(id);
+    await hydrateSession(id);
+    send({ type: "start", sessionId: id, token: auth.token() ?? undefined, ...callerWire(caller.get()) });
+  }, [hydrateSession, send, stopPlayback]);
+
+  // Keep synced when Assistant switches/reopens a session while Voix is open.
+  useEffect(() => {
+    return sessionsStore.subscribe(() => {
+      const next = sessionsStore.activeId();
+      if (next && next !== sessionId.current && conn === "ready" && activity === "idle") {
+        void openSession(next);
+      }
+    });
+  }, [activity, conn, openSession]);
+
+  // Hydrate once on initial ready if activeId already had history (e.g., started in Assistant).
+  const hydratedInitial = useRef<string>();
+  useEffect(() => {
+    const sid = providers?.sessionId;
+    if (conn === "ready" && sid && hydratedInitial.current !== sid) {
+      hydratedInitial.current = sid;
+      if (turns.length === 0) void hydrateSession(sid);
+    }
+  }, [conn, hydrateSession, providers?.sessionId, turns.length]);
 
   // ── Mic ──
   const openMic = useCallback(async (): Promise<MediaStream | undefined> => {
@@ -386,17 +446,30 @@ export function useVoiceSession() {
     setLastError(undefined);
   }, [conn, newTurn, send, stopPlayback]);
 
-  const reset = useCallback(() => {
+  const reset = useCallback(async () => {
     stopPlayback();
-    send({ type: "reset" });
     currentTurn.current = undefined;
     setTurns([]);
     setActivity("idle");
     setLastError(undefined);
+    try {
+      const created = await sessionsStore.createNew("voice");
+      sessionId.current = created.id;
+      send({ type: "start", sessionId: created.id, token: auth.token() ?? undefined, ...callerWire(caller.get()) });
+    } catch {
+      send({ type: "reset" });
+    }
   }, [send, stopPlayback]);
+
+  // If Dashboard/Suggestion redirected here with a prefilled prompt, send it automatically once WS is ready.
+  useEffect(() => {
+    if (conn !== "ready") return;
+    const pending = sessionsStore.consumePendingVoiceText();
+    if (pending) sendText(pending);
+  }, [conn, sendText]);
 
   return {
     conn, activity, mic, providers, turns, level, lastError, effectiveRole,
-    startTalking, stopTalking, sendText, stopPlayback, reset, reconnect: connect,
+    startTalking, stopTalking, sendText, stopPlayback, reset, openSession, reconnect: connect,
   };
 }

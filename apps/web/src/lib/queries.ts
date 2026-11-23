@@ -220,7 +220,7 @@ export const useClientEvents = (id?: Id, p?: EntityEventParams) =>
   useQuery({ queryKey: qk.history.client(id!, clean(p)), queryFn: () => api.clientEvents.list(id!, clean(p)), enabled: !!id, placeholderData: keepPreviousData });
 export const useSupplierEvents = (id?: Id, p?: EntityEventParams) =>
   useQuery({ queryKey: qk.history.supplier(id!, clean(p)), queryFn: () => api.supplierEvents.list(id!, clean(p)), enabled: !!id, placeholderData: keepPreviousData });
-export const useClientEventSearch = (p?: EventSearchParams, enabled = true) =>
+export const useClientEventSearch = (p?: EventSearchParams & { clientId?: Id }, enabled = true) =>
   useQuery({ queryKey: qk.history.clientSearch(clean(p)), queryFn: () => api.clientEvents.search(clean(p)), enabled, placeholderData: keepPreviousData });
 export const useSupplierEventSearch = (p?: EventSearchParams, enabled = true) =>
   useQuery({ queryKey: qk.history.supplierSearch(clean(p)), queryFn: () => api.supplierEvents.search(clean(p)), enabled, placeholderData: keepPreviousData });

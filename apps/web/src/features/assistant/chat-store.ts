@@ -1,11 +1,12 @@
 /**
- * Chat conversation, kept in module memory so it survives closing/reopening the panel (⌘J) and page changes.
- * The stream keeps running while the panel is closed.
+ * Chat conversation unified with the server session store (`sessions-store.ts`), shared with /voice.
+ * Sending sends only `{ sessionId, messages: [latestUserMessage], currentPath }` — the server owns history & compaction.
  */
 import { useSyncExternalStore } from "react";
-import type { ChatMessage, ChatStreamEvent } from "@kit/shared";
-import { AiUnavailableError, streamChat, TurnRecorder } from "./ai-client";
+import type { ChatMessage, ChatStreamEvent, SessionDetail } from "@kit/shared";
+import { AiUnavailableError, getAiSession, streamChat, TurnRecorder } from "./ai-client";
 import { caller, callerWire } from "./caller";
+import { sessionsStore } from "./sessions-store";
 import type { ToolRun } from "./tools";
 
 export type Part = { kind: "text"; text: string } | { kind: "tool"; tool: ToolRun };
@@ -17,20 +18,35 @@ export type ChatItem =
 interface ChatState {
   items: ChatItem[];
   busy: boolean;
-  unavailable: boolean; // last request could not reach the AI service
+  unavailable: boolean;
+  sessionId: string | null;
 }
 
-let state: ChatState = { items: [], busy: false, unavailable: false };
+let state: ChatState = { items: [], busy: false, unavailable: false, sessionId: sessionsStore.activeId() };
 let history: ChatMessage[] = [];
 let controller: AbortController | undefined;
 const listeners = new Set<() => void>();
 let seq = 0;
-let generation = 0; // bumped by reset(): a stream from an older conversation must not touch the new one
+let generation = 0;
 const uid = () => `m${++seq}`;
 
 function set(patch: Partial<ChatState>) {
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
+}
+
+function itemsFromDetail(d: SessionDetail): ChatItem[] {
+  const out: ChatItem[] = [];
+  const now = Date.now();
+  for (const m of d.messages) {
+    if (m.role === "user") {
+      const clean = m.text.split("\n\n[", 1)[0].trim();
+      if (clean) out.push({ id: uid(), role: "user", text: clean, at: now });
+    } else if (m.role === "assistant" && m.text.trim()) {
+      out.push({ id: uid(), role: "assistant", parts: [{ kind: "text", text: m.text }], status: "done", at: now });
+    }
+  }
+  return out;
 }
 
 function updateAssistant(id: string, fn: (a: Extract<ChatItem, { role: "assistant" }>) => Extract<ChatItem, { role: "assistant" }>) {
@@ -55,7 +71,6 @@ function applyEvent(id: string, e: ChatStreamEvent) {
           parts: parts.map((p) => (p.kind === "tool" && p.tool.id === e.callId ? { kind: "tool", tool: { ...p.tool, ok: e.ok, ms: e.ms, result: e.result } } : p)),
         };
       case "done":
-        // Some providers answer without streaming deltas: fall back to the final message.
         if (!parts.some((p) => p.kind === "text") && e.message.content) parts.push({ kind: "text", text: e.message.content });
         return { ...a, parts, status: "done", ms: e.ms };
       case "error":
@@ -68,8 +83,10 @@ export const chat = {
   async send(text: string) {
     const content = text.trim();
     if (!content || state.busy) return;
+    const sid = await sessionsStore.ensure("chat");
     const assistantId = uid();
     set({
+      sessionId: sid,
       busy: true,
       unavailable: false,
       items: [
@@ -84,10 +101,15 @@ export const chat = {
     const ctrl = controller;
     const gen = generation;
     try {
-      await streamChat({ messages: [...history, userMsg], mode: "chat", ...callerWire(caller.get()) }, (e) => {
-        recorder.push(e);
-        applyEvent(assistantId, e);
-      }, ctrl.signal);
+      const currentPath = typeof window !== "undefined" ? window.location.pathname : undefined;
+      await streamChat(
+        { sessionId: sid, currentPath, messages: [userMsg], mode: "chat", ...callerWire(caller.get()) },
+        (e) => {
+          recorder.push(e);
+          applyEvent(assistantId, e);
+        },
+        ctrl.signal,
+      );
       updateAssistant(assistantId, (a) => (a.status === "streaming" ? { ...a, status: "done" } : a));
     } catch (e) {
       const err = e as Error;
@@ -98,30 +120,75 @@ export const chat = {
       }
     } finally {
       if (gen !== generation) return; // eslint-disable-line no-unsafe-finally
-      // A conversation the service never saw stays out of the history (so a retry is clean).
       if (recorder.messages.length || state.items.find((i) => i.id === assistantId && i.role === "assistant" && i.parts.length)) {
         history = [...history, userMsg, ...recorder.finish()];
       }
       if (controller === ctrl) controller = undefined;
       set({ busy: false });
+      void sessionsStore.refresh();
     }
+  },
+  async openSession(id: string) {
+    generation++;
+    controller?.abort();
+    const d = await sessionsStore.open(id);
+    if (!d) return;
+    history = [];
+    set({ sessionId: d.id, items: itemsFromDetail(d), busy: false, unavailable: false });
+  },
+  async syncFromActive() {
+    const id = sessionsStore.activeId();
+    if (!id) { set({ sessionId: null, items: [] }); return; }
+    if (state.busy) return;
+    const d = await getAiSession(id);
+    if (d && !state.busy) set({ sessionId: d.id, items: itemsFromDetail(d) });
   },
   stop() {
     controller?.abort();
   },
-  reset() {
+  async reset() {
     generation++;
     controller?.abort();
     history = [];
-    set({ items: [], busy: false, unavailable: false });
+    try {
+      const created = await sessionsStore.createNew("chat");
+      set({ sessionId: created.id, items: [], busy: false, unavailable: false });
+    } catch {
+      sessionsStore.setActiveId(null);
+      set({ sessionId: null, items: [], busy: false, unavailable: false });
+    }
   },
 };
 
-// Another identity = another conversation: what was said and fetched for the previous one must not carry over.
 let lastIdentity = JSON.stringify(callerWire());
 caller.subscribe(() => {
   const now = JSON.stringify(callerWire());
-  if (now !== lastIdentity) { lastIdentity = now; chat.reset(); }
+  if (now !== lastIdentity) {
+    lastIdentity = now;
+    generation++;
+    controller?.abort();
+    history = [];
+    sessionsStore.setActiveId(null);
+    set({ sessionId: null, items: [], busy: false, unavailable: false });
+    void sessionsStore.refresh();
+  }
+});
+
+// Keep Assistant view synced when another surface (Voix / SessionPicker) switches the active session.
+sessionsStore.subscribe(() => {
+  const nextId = sessionsStore.activeId();
+  if (nextId !== state.sessionId && !state.busy) {
+    if (!nextId) {
+      history = [];
+      set({ sessionId: null, items: [] });
+    } else {
+      void getAiSession(nextId).then((d) => {
+        if (d && sessionsStore.activeId() === d.id && !state.busy) {
+          set({ sessionId: d.id, items: itemsFromDetail(d) });
+        }
+      });
+    }
+  }
 });
 
 export function useChat(): ChatState {

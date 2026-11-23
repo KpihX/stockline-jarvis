@@ -10,26 +10,49 @@ import { Button, IconButton, Kbd, Spinner } from "@/ui";
 import { shell } from "@/app/shell-state";
 import { useAiHealth } from "./ai-client";
 import { CallerBadge } from "./CallerBadge";
+import { ROLE_HELP, useCaller } from "./caller";
 import { chat, useChat, type ChatItem } from "./chat-store";
+import { SessionPicker } from "./SessionPicker";
 import { Markdown } from "@/ui/markdown";
 import { ToolRow } from "./tools";
 
-const SUGGESTIONS: { label: string; send: boolean }[] = [
-  { label: "Qu'est-ce que commande d'habitude Le Bistrot du Port ?", send: true },
-  { label: "Stock de bar de ligne ?", send: true },
-  { label: "Crée une pré-commande pour ", send: false },
-];
+function suggestionsForRole(role: string): { label: string; send: boolean }[] {
+  if (role === "client") {
+    return [
+      { label: "Que puis-je commander comme d'habitude ?", send: true },
+      { label: "Quels sont mes tarifs et mes commandes en cours ?", send: true },
+      { label: "Je voudrais commander ", send: false },
+    ];
+  }
+  if (role === "supplier") {
+    return [
+      { label: "Quels sont nos bons d'achat et livraisons attendues ?", send: true },
+      { label: "Quels produits ont un stock bas chez vous ?", send: true },
+      { label: "Signaler un retard de livraison pour ", send: false },
+    ];
+  }
+  return [
+    { label: "Qu'est-ce que commande d'habitude Le Refuge Payet ?", send: true },
+    { label: "Stock de Beaufort d'alpage ?", send: true },
+    { label: "Crée une pré-commande pour ", send: false },
+  ];
+}
 
 export function AssistantPanel() {
   const { items, busy, unavailable } = useChat();
+  const c = useCaller();
   const health = useAiHealth();
+  const suggestions = suggestionsForRole(c.role);
   const down = health.isError || unavailable;
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    inputRef.current?.focus();
+    void chat.syncFromActive();
+  }, []);
 
   // Follow the stream unless the user scrolled up.
   useLayoutEffect(() => {
@@ -57,7 +80,7 @@ export function AssistantPanel() {
     if (e.key === "Escape" && busy) { e.preventDefault(); chat.stop(); }
   };
 
-  const pickSuggestion = (s: (typeof SUGGESTIONS)[number]) => {
+  const pickSuggestion = (s: { label: string; send: boolean }) => {
     if (s.send) return submit(s.label);
     setInput(s.label);
     requestAnimationFrame(() => {
@@ -70,16 +93,23 @@ export function AssistantPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border pl-4 pr-2">
+      <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border pl-4 pr-2">
         <Sparkles size={14} strokeWidth={1.75} className="text-violet" />
         <div className="text-[13.5px] font-semibold">Assistant</div>
         <div className="min-w-0 flex-1 truncate pl-1 font-mono text-[10.5px] text-muted-foreground" title={llm ? `${llm.provider} · ${llm.model ?? ""}` : undefined}>
           {down ? <span className="text-destructive">hors ligne</span> : llm ? `${llm.provider}${llm.model ? ` · ${llm.model}` : ""}` : ""}
         </div>
+        <SessionPicker surface="chat" onPick={(id) => void chat.openSession(id)} onCreate={() => void chat.reset()} />
         <CallerBadge />
-        {items.length ? <IconButton icon={RotateCcw} label="Nouvelle conversation" size="sm" onClick={() => { chat.reset(); inputRef.current?.focus(); }} /> : null}
+        {items.length ? <IconButton icon={RotateCcw} label="Nouvelle conversation" size="sm" onClick={() => { void chat.reset(); inputRef.current?.focus(); }} /> : null}
         <Kbd>⌘J</Kbd>
         <IconButton icon={X} label="Fermer" size="sm" onClick={shell.closeAssistant} />
+      </div>
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-1 text-[11px] text-muted-foreground">
+        <span className="truncate" title={ROLE_HELP[c.role]}>
+          {c.verified ? "Vérifié : " : "Profil : "}
+          <strong className="font-medium text-foreground">{c.actorName || c.role}</strong> — {ROLE_HELP[c.role]}
+        </span>
       </div>
 
       <div
@@ -100,7 +130,7 @@ export function AssistantPanel() {
               </p>
             </div>
             <div className="flex flex-col items-start gap-1.5">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <button
                   key={s.label}
                   type="button"

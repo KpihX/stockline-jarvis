@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { ShieldAlert } from "lucide-react";
 import { useActivityStream } from "@/lib/queries";
 import { cn } from "@/lib/cn";
-import { CommandK, PageHeaderSlot, ResizeHandle, Toaster, useResizableWidth } from "@/ui";
+import { Button, CommandK, EmptyState, Page, PageBody, PageHeader, PageHeaderSlot, ResizeHandle, Toaster, useResizableWidth } from "@/ui";
 import { AssistantPanel } from "@/features/assistant/AssistantPanel";
+import { UserMenu } from "@/features/auth/UserMenu";
+import { canVisitRoute, useAuth } from "@/features/auth/auth-store";
 import { VoiceCommandButton, VoiceCommandProvider } from "@/features/voice-command";
 import { AssistantButton } from "./AssistantButton";
 import { Sidebar } from "./Sidebar";
@@ -12,20 +15,37 @@ import { shell, useShell } from "./shell-state";
 /**
  * Sidebar 232px (resizable, ⌘\ / ⌘B → 56px rail) | page (Outlet) | Assistant 400px (⌘J, resizable 320–720, pushes
  * content; width + opacity animate 200ms ease-out). Mounts SSE, ⌘K and toasts once.
- * The Assistant toggle sits top-right on every route: inside each PageHeader (via PageHeaderSlot), or — when the
- * current route renders no PageHeader — in a shell-owned slot at the top-right of <main>.
  */
-/** Global top-right tools, grouped: hold-to-talk voice command (hold Space or click-and-hold) + Assistant toggle (⌘J). */
 function ShellHeaderTools() {
   return (
     <div className="flex shrink-0 items-center gap-1" data-shell-tools>
+      <UserMenu />
       <VoiceCommandButton />
       <AssistantButton />
     </div>
   );
 }
 
+function ForbiddenView({ role }: { role: string }) {
+  const navigate = useNavigate();
+  return (
+    <Page>
+      <PageHeader title="Accès réservé" />
+      <PageBody>
+        <EmptyState
+          icon={ShieldAlert}
+          title="Cette page n'est pas accessible avec ce profil"
+          description={`Vous êtes connecté avec le rôle « ${role} ». Chaque profil ne voit que son périmètre métier.`}
+          action={<Button variant="primary" onClick={() => navigate("/")}>Retour à l'accueil</Button>}
+        />
+      </PageBody>
+    </Page>
+  );
+}
+
 export function AppShell() {
+  const { account } = useAuth();
+  const loc = useLocation();
   useActivityStream();
   const { assistantOpen } = useShell();
   const assistant = useResizableWidth("assistant", 400, 320, 720);
@@ -35,6 +55,7 @@ export function AppShell() {
   useEffect(() => {
     if (assistantOpen) {
       setAssistantMounted(true);
+      void import("@/features/assistant/chat-store").then(({ chat }) => chat.syncFromActive());
       // Mount at 0 width, let one frame paint it, then grow (a single rAF fires before that first paint).
       let raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => setAssistantShown(true)); });
       return () => cancelAnimationFrame(raf);
@@ -58,12 +79,25 @@ export function AppShell() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  if (!account) {
+    const next = encodeURIComponent(loc.pathname + loc.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
+  if (account.role === "client" && loc.pathname === "/clients" && account.entityId) {
+    return <Navigate to={`/clients/${account.entityId}`} replace />;
+  }
+  if (account.role === "supplier" && loc.pathname === "/suppliers" && account.entityId) {
+    return <Navigate to={`/suppliers/${account.entityId}`} replace />;
+  }
+  const allowed = canVisitRoute(account.role, loc.pathname, account.entityId);
+
   return (
     <div className="flex h-full min-w-[1024px] overflow-hidden bg-background">
       <Sidebar />
       <main className="relative min-w-0 flex-1 overflow-hidden">
         <PageHeaderSlot trailing={<ShellHeaderTools />} register={registerHeader}>
-          <Outlet />
+          {allowed ? <Outlet /> : <ForbiddenView role={account.role} />}
         </PageHeaderSlot>
         {headers === 0 ? (
           <div className="absolute right-5 top-0 z-30 flex h-12 items-center">

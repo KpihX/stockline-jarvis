@@ -11,11 +11,11 @@ from pydantic import BaseModel
 from app.auth import resolve_caller
 from app.policy import Caller
 from app.schemas import ErrorResponse
-from app.services import sessions
+from app.services import sessions, suggestions
 
 from .command import header_text
 
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(tags=["sessions"])
 
 
 class SessionCreateBody(BaseModel):
@@ -37,7 +37,13 @@ async def _caller(request: Request) -> Caller:
     )
 
 
-@router.get("")
+@router.get("/suggestions")
+async def get_suggestions(request: Request, seed: int = 0, live: int = 1):
+    caller = await _caller(request)
+    return await suggestions.build_suggestions(caller, seed=seed, use_llm=bool(live))
+
+
+@router.get("/sessions")
 async def list_sessions(
     request: Request,
     q: str = "",
@@ -51,13 +57,13 @@ async def list_sessions(
     return sessions.list_sessions(q=q, caller=caller, role=role, client_id=client_id, surface=surface, limit=limit, offset=offset)
 
 
-@router.post("", status_code=201)
+@router.post("/sessions", status_code=201)
 async def create_session(body: SessionCreateBody, request: Request):
     caller = await _caller(request)
     return sessions.create_session(title=body.title, surface=body.surface, caller=caller)
 
 
-@router.get("/{sid}", responses={404: {"model": ErrorResponse}})
+@router.get("/sessions/{sid}", responses={404: {"model": ErrorResponse}})
 async def get_session(sid: str, request: Request):
     caller = await _caller(request)
     d = sessions.detail(sid, caller=caller)
@@ -66,7 +72,7 @@ async def get_session(sid: str, request: Request):
     return d
 
 
-@router.patch("/{sid}", responses={404: {"model": ErrorResponse}})
+@router.patch("/sessions/{sid}", responses={404: {"model": ErrorResponse}})
 async def rename_session(sid: str, body: SessionRenameBody, request: Request):
     caller = await _caller(request)
     d = sessions.rename(sid, body.title, caller=caller)
@@ -75,7 +81,7 @@ async def rename_session(sid: str, body: SessionRenameBody, request: Request):
     return d
 
 
-@router.post("/{sid}/reopen", responses={404: {"model": ErrorResponse}})
+@router.post("/sessions/{sid}/reopen", responses={404: {"model": ErrorResponse}})
 async def reopen_session(sid: str, request: Request):
     caller = await _caller(request)
     d = sessions.reopen(sid, caller=caller)
@@ -84,7 +90,7 @@ async def reopen_session(sid: str, request: Request):
     return d
 
 
-@router.delete("/{sid}", status_code=204, responses={404: {"model": ErrorResponse}})
+@router.delete("/sessions/{sid}", status_code=204, responses={404: {"model": ErrorResponse}})
 async def delete_session(sid: str, request: Request):
     caller = await _caller(request)
     if not sessions.remove(sid, caller=caller):

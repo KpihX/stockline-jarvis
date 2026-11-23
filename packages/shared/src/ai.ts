@@ -44,18 +44,21 @@ export interface ToolInfo {
  * unknown (default) = catalogue only, no write · client = ONE client (clientId required, else downgraded to unknown) · sales / direction = everything.
  * Production would replace the declaration by caller-ID / authentication; the server-side table would not change.
  */
-export type CallerRole = "unknown" | "client" | "sales" | "direction";
+export type CallerRole = "unknown" | "client" | "supplier" | "manager" | "admin" | "sales" | "direction";
 
 export interface CallerIdentity {
   role: CallerRole;
-  clientId?: string; // client: the client they are · sales / direction: the client they are working on (optional)
-  actorName?: string; // declared name: shown as the author of the ERP writes of the session
+  clientId?: string; // client: the client they are · manager / admin: optional client they are working on
+  supplierId?: string; // supplier: the supplier they are
+  actorName?: string; // verified or declared name: shown as the author of the ERP writes of the session
+  verified?: boolean;
 }
 
 export interface ChatRequest extends Partial<CallerIdentity> {
-  messages: ChatMessage[]; // full conversation so far (no system message; the harness adds it)
+  messages: ChatMessage[]; // latest message (or full conversation when no sessionId)
+  sessionId?: string; // shared server session id (unifies Assistant chat and /voice)
+  currentPath?: string; // active frontend route for UI context awareness
   mode?: "chat" | "voice" | "command"; // voice → short spoken-style answers; command → single-turn, act-first, one line
-  // identity (optional: absent = unknown): role / clientId / actorName here, or the x-caller-role / x-caller-client-id / x-actor-name headers
 }
 
 export type ChatStreamEvent =
@@ -68,7 +71,7 @@ export type ChatStreamEvent =
 // ── Voice (push-to-talk, two tracks: the human "caller" and the agent) ──
 
 export type VoiceClientMessage =
-  | ({ type: "start"; sessionId?: string } & Partial<CallerIdentity>) // opens a conversation. Another identity on the same sessionId wipes its history
+  | ({ type: "start"; sessionId?: string; token?: string } & Partial<CallerIdentity>) // opens a conversation. Another identity on the same sessionId wipes its history
   | { type: "audio_start"; mime: string; hint?: string } // caller pressed space (hint: optional STT vocabulary; mock STT returns it)
   | { type: "audio_end" } // caller released space; binary frames sent in between (every 100–250 ms) are the utterance, streamed to the STT as they arrive
   | { type: "audio_cancel" } // instead of audio_end: released right after audio_start (a tap / accidental click): drop it, no turn
@@ -148,4 +151,58 @@ export interface VocabEntry {
   clients: string[]; // distinct clients that confirmed it (3 → promoted to global)
   confidence: number;
   expired?: boolean; // never reused for too long: ignored, removed by POST /ai/vocab/prune
+}
+
+// ── Unified Sessions & AI Suggestions ──
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  surface: "chat" | "voice" | null;
+  turns: number;
+  clientId: string | null;
+  supplierId?: string | null;
+  role: CallerRole;
+  actorName: string | null;
+  commandIds: string[];
+  preview: string;
+  pendingQuestion: string;
+}
+
+export interface SessionMessage {
+  role: ChatRole;
+  text: string;
+  name?: string | null;
+}
+
+export interface SessionDetail extends SessionSummary {
+  messages: SessionMessage[];
+  facts: {
+    client?: unknown;
+    commandes: string[];
+    actions: string[];
+    questionsEnAttente: string;
+  };
+}
+
+export interface DashboardSuggestion {
+  id: string;
+  badge: string;
+  tone: "emerald" | "violet" | "warning" | "destructive";
+  title: string;
+  reason: string;
+  prompt: string;
+  targetSurface: "voice" | "chat";
+}
+
+export interface DashboardSuggestionsPayload {
+  role: CallerRole;
+  headline: string;
+  aiGenerated: boolean;
+  notesDigest: string[];
+  usualProducts?: { productId: string; productName: string; qty: number; unit: string }[];
+  suggestions: DashboardSuggestion[];
+  seed: number;
 }

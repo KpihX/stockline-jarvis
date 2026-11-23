@@ -1,7 +1,80 @@
 /** AI service client (proxied at /ai → :4100): health query, chat SSE stream, history rebuild from events. */
 import { useQuery } from "@tanstack/react-query";
-import type { ChatRequest, ChatStreamEvent } from "@kit/shared";
+import type {
+  ChatRequest, ChatStreamEvent, DashboardSuggestionsPayload, SessionDetail, SessionSummary,
+} from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
+import { auth } from "@/features/auth/auth-store";
+import { callerWire } from "./caller";
+
+function aiHeaders(extra?: Record<string, string>): Record<string, string> {
+  const tok = auth.token();
+  const c = callerWire();
+  return {
+    ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
+    ...(c.role && c.role !== "unknown" ? { "x-caller-role": c.role } : {}),
+    ...(c.clientId ? { "x-caller-client-id": c.clientId } : {}),
+    ...(c.supplierId ? { "x-caller-supplier-id": c.supplierId } : {}),
+    ...(c.actorName ? { "x-actor-name": encodeURIComponent(c.actorName) } : {}),
+    ...extra,
+  };
+}
+
+export async function listAiSessions(q = ""): Promise<SessionSummary[]> {
+  const sp = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+  const res = await fetch(`${AI_BASE}/sessions${sp}`, { headers: aiHeaders() });
+  if (!res.ok) return [];
+  return (await res.json()) as SessionSummary[];
+}
+
+export async function createAiSession(surface: "chat" | "voice", title?: string): Promise<SessionDetail> {
+  const res = await fetch(`${AI_BASE}/sessions`, {
+    method: "POST",
+    headers: aiHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ surface, ...(title ? { title } : {}) }),
+  });
+  if (!res.ok) throw new Error(`Erreur création session (${res.status})`);
+  return (await res.json()) as SessionDetail;
+}
+
+export async function getAiSession(id: string): Promise<SessionDetail | null> {
+  const res = await fetch(`${AI_BASE}/sessions/${encodeURIComponent(id)}`, { headers: aiHeaders() });
+  if (!res.ok) return null;
+  return (await res.json()) as SessionDetail;
+}
+
+export async function renameAiSession(id: string, title: string): Promise<SessionDetail | null> {
+  const res = await fetch(`${AI_BASE}/sessions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: aiHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as SessionDetail;
+}
+
+export async function reopenAiSession(id: string): Promise<SessionDetail | null> {
+  const res = await fetch(`${AI_BASE}/sessions/${encodeURIComponent(id)}/reopen`, {
+    method: "POST",
+    headers: aiHeaders(),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as SessionDetail;
+}
+
+export async function deleteAiSession(id: string): Promise<boolean> {
+  const res = await fetch(`${AI_BASE}/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: aiHeaders(),
+  });
+  return res.ok;
+}
+
+export async function fetchAiSuggestions(seed = 0, live = true): Promise<DashboardSuggestionsPayload> {
+  const res = await fetch(`${AI_BASE}/suggestions?seed=${seed}&live=${live ? 1 : 0}`, { headers: aiHeaders() });
+  if (!res.ok) throw new Error(`Suggestions indisponibles (${res.status})`);
+  return (await res.json()) as DashboardSuggestionsPayload;
+}
 
 export interface AiHealth {
   ok: boolean;
@@ -40,7 +113,7 @@ export async function streamChat(req: ChatRequest, onEvent: (e: ChatStreamEvent)
   try {
     res = await fetch(`${AI_BASE}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      headers: aiHeaders({ "content-type": "application/json", accept: "text/event-stream" }),
       body: JSON.stringify(req),
       signal,
     });

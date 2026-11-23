@@ -8,6 +8,7 @@ import { fmtMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABEL } from "@/lib/labels";
 import { usePaymentsPage } from "@/lib/queries";
 import { useDebounced, useUrlState } from "@/lib/url-state";
+import { useAuth } from "@/features/auth/auth-store";
 import {
   Button, DataTable, DateLabel, EmptyState, Money, Mono, Page, PageBody, PageHeader, SearchInput, Select, useServerList, type Column,
 } from "@/ui";
@@ -16,13 +17,15 @@ import { RecordPaymentPanel } from "./RecordPaymentPanel";
 const METHOD_OPTIONS = Object.entries(PAYMENT_METHOD_LABEL).map(([value, label]) => ({ value, label }));
 
 export default function PaymentsPage() {
+  const { account } = useAuth();
+  const lockedClient = account?.role === "client" ? (account.entityId ?? undefined) : undefined;
   const [q, setQ] = useUrlState("q");
   const [method, setMethod] = useUrlState("method");
   const [creating, setCreating] = useState(false);
   const dq = useDebounced(q, 150);
 
   const list = useServerList({ defaultSort: { id: "date", dir: "desc" } });
-  const { data, isLoading, isError, refetch } = usePaymentsPage({ q: dq || undefined, method: method || undefined, ...list.params });
+  const { data, isLoading, isError, refetch } = usePaymentsPage({ clientId: lockedClient, q: dq || undefined, method: method || undefined, ...list.params });
   const rows = data?.items;
 
   const columns: Column<PaymentSummary>[] = useMemo(() => [
@@ -63,15 +66,15 @@ export default function PaymentsPage() {
   return (
     <Page>
       <PageHeader
-        title="Paiements"
+        title={lockedClient ? "Mes paiements" : "Paiements"}
         count={filtered ? undefined : data?.total}
         filters={
           <>
-            <SearchInput value={q} onChange={setQ} placeholder="Client, référence, facture…" />
+            <SearchInput value={q} onChange={setQ} placeholder={lockedClient ? "Référence, facture…" : "Client, référence, facture…"} />
             <Select size="sm" value={method} onChange={(v) => setMethod(v as PaymentMethod | "")} placeholder="Tous les modes" options={METHOD_OPTIONS} />
           </>
         }
-        actions={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>Enregistrer un paiement</Button>}
+        actions={!lockedClient ? <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>Enregistrer un paiement</Button> : undefined}
       />
       <PageBody flush>
         {isError && !data ? (

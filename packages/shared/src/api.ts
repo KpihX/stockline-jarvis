@@ -530,4 +530,56 @@ export interface ContextForEntity {
   related: ContextEntrySummary[];
 }
 
+// ── Auth & user accounts (4 real roles + strict single admin) ──
+
+export type AuthRole = "client" | "supplier" | "manager" | "admin";
+
+export interface Account {
+  id: string;
+  username: string;
+  displayName: string;
+  role: AuthRole;
+  entityType?: string | null;
+  entityId?: string | null;
+  entityLabel?: string | null;
+  active: boolean;
+  createdAt: string;
+  lastLoginAt?: string | null;
+}
+
+export interface DemoAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  role: AuthRole;
+  entityType?: string | null;
+  entityId?: string | null;
+  entityLabel?: string | null;
+  demoPassword: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  expiresAt: string;
+  account: Account;
+}
+
+export interface AccountCreateInput {
+  username: string;
+  displayName?: string;
+  role: AuthRole;
+  entityType?: string;
+  entityId?: string;
+  password: string;
+  active?: boolean;
+}
+
+export interface AccountUpdateInput {
+  displayName?: string;
+  role?: AuthRole;
+  entityType?: string;
+  entityId?: string;
+  active?: boolean;
+}
+
 export type { ActivityEvent, Client, Invoice, Order, Payment, Product, PurchaseOrder, Route, RouteRun, StockLevel, Supplier };

@@ -7,6 +7,7 @@ import { useOrdersPage } from "@/lib/queries";
 import { useUrlState } from "@/lib/url-state";
 import { Select } from "@/ui";
 import { DocumentListPage, useDocListFilters, type DocRow } from "@/features/document/list";
+import { useAuth } from "@/features/auth/auth-store";
 import { SOURCE_OPTIONS, SourceLabel } from "./source";
 
 const STATUS_TABS = [
@@ -20,10 +21,12 @@ const STATUS_TABS = [
 ] as const;
 
 export default function OrdersPage() {
+  const { account } = useAuth();
+  const lockedClient = account?.role === "client" ? (account.entityId ?? undefined) : undefined;
   const f = useDocListFilters("clientId");
   const [source, setSource] = useUrlState("source");
   // Everything is server-side (one page per request): status tab, search, date, client, channel, sort, page.
-  const { data, isLoading, isError, refetch } = useOrdersPage({ ...f.params, clientId: f.partner || undefined, source: source || undefined });
+  const { data, isLoading, isError, refetch } = useOrdersPage({ ...f.params, clientId: lockedClient ?? (f.partner || undefined), source: source || undefined });
   const rows = useMemo<DocRow[] | undefined>(() => data?.items.map((o) => ({
     id: o.id, number: o.number, partnerName: o.clientName, date: o.deliveryDate, lineCount: o.lineCount, totalHt: o.totalHt, status: o.status,
     partnerExtra: o.source === "voice_agent" ? <SourceLabel source={o.source} /> : undefined,
@@ -32,7 +35,7 @@ export default function OrdersPage() {
   return (
     <DocumentListPage
       kind="sale"
-      title="Commandes"
+      title={lockedClient ? "Mes commandes" : "Commandes"}
       icon={ShoppingCart}
       tabs={STATUS_TABS}
       filters={f}

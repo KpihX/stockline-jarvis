@@ -4,8 +4,9 @@ import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMeta, useStreamStatus } from "@/lib/queries";
 import { Dot, IconButton, Kbd, ResizeHandle, SECTION_LABEL, ThemeToggle, useResizableWidth } from "@/ui";
-import { NAV, type NavItem } from "./nav";
+import { navForRole, type NavItem } from "./nav";
 import { shell, useShell } from "./shell-state";
+import { useAuth } from "@/features/auth/auth-store";
 
 /** Collapsed rail width: icons stay at the exact same x as when expanded, so collapsing never shifts them. */
 export const RAIL_WIDTH = 56;
@@ -74,6 +75,8 @@ export function Sidebar() {
   }, [meta?.company]);
   const status = useStreamStatus();
   const { sidebarCollapsed: collapsed } = useShell();
+  const { account } = useAuth();
+  const groups = navForRole(account?.role, account?.entityId);
   const r = useResizableWidth("sidebar", 232, 200, 360);
   const fade = cn("transition-opacity duration-200 ease-out motion-reduce:transition-none", collapsed && "pointer-events-none opacity-0");
   return (
@@ -127,7 +130,7 @@ export function Sidebar() {
           </button>
         </div>
         <div className={cn("min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3")}>
-          {NAV.map((g, i) => (
+          {groups.map((g, i) => (
             <div key={i} className={cn(i > 0 && "mt-3")}>
               {g.label ? (
                 <div className={cn(SECTION_LABEL, "relative mb-1 px-2")}>

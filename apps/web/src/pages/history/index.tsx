@@ -11,14 +11,17 @@ import { fmtMoney } from "@/lib/format";
 import { qk, useApiMutation, useClientEventSearch, useSupplierEventSearch } from "@/lib/queries";
 import { useDebounced, useUrlState } from "@/lib/url-state";
 import { Button, DatePicker, EmptyState, Page, PageBody, PageHeader, SearchInput, Segmented, Stat, StatGrid, Tabs, useServerList } from "@/ui";
+import { useAuth } from "@/features/auth/auth-store";
 import { EventTimeline, FAMILIES, FamilyChips, typesOfFamilies, type EventKind, type FamilyId, type TimelineEvent } from "./timeline";
 
 const ISSUE_TYPES = new Set<string>(FAMILIES.find((f) => f.id === "issues")?.types ?? []);
 
 
 export default function HistoryPage() {
+  const { account } = useAuth();
+  const lockedClient = account?.role === "client" ? (account.entityId ?? undefined) : undefined;
   const [kindRaw, setKind] = useUrlState("kind", "client");
-  const kind: EventKind = kindRaw === "supplier" ? "supplier" : "client";
+  const kind: EventKind = lockedClient ? "client" : (kindRaw === "supplier" ? "supplier" : "client");
   const [family, setFamily] = useUrlState("family");
   const families = useMemo(() => (family ? (family.split(",") as FamilyId[]) : []), [family]);
   const toggleFamily = (f: FamilyId) => setFamily((families.includes(f) ? families.filter((x) => x !== f) : [...families, f]).join(","));
@@ -30,6 +33,7 @@ export default function HistoryPage() {
 
   const list = useServerList({ pageKey: "histPage", defaultSort: { id: "at", dir: "desc" } });
   const params = {
+    ...(lockedClient ? { clientId: lockedClient } : {}),
     type: families.length ? typesOfFamilies(families, kind) : undefined,
     status: (status || undefined) as "open" | "resolved" | undefined,
     q: dq || undefined,
@@ -38,14 +42,14 @@ export default function HistoryPage() {
     ...list.params,
   };
   const clients = useClientEventSearch(params, kind === "client");
-  const suppliers = useSupplierEventSearch(params, kind === "supplier");
+  const suppliers = useSupplierEventSearch(params, !lockedClient && kind === "supplier");
   const cur = kind === "client" ? clients : suppliers;
   const page = cur.data;
   const events = page?.items as TimelineEvent[] | undefined;
 
   // Tab counts: the size of each unfiltered history (one row fetched, the total is what matters).
-  const allClients = useClientEventSearch({ limit: 1 });
-  const allSuppliers = useSupplierEventSearch({ limit: 1 });
+  const allClients = useClientEventSearch(lockedClient ? { clientId: lockedClient, limit: 1 } : { limit: 1 });
+  const allSuppliers = useSupplierEventSearch({ limit: 1 }, !lockedClient);
 
   const resolve = useApiMutation(
     ({ ev, resolution }: { ev: TimelineEvent; resolution: string }): Promise<unknown> =>
@@ -69,16 +73,18 @@ export default function HistoryPage() {
   return (
     <Page>
       <PageHeader
-        title="Historique"
+        title={lockedClient ? "Mon historique" : "Historique"}
         tabs={
-          <Tabs
-            value={kind}
-            onChange={(k) => setKind(k)}
-            items={[
-              { id: "client" as const, label: "Clients", count: allClients.data?.total },
-              { id: "supplier" as const, label: "Fournisseurs", count: allSuppliers.data?.total },
-            ]}
-          />
+          !lockedClient ? (
+            <Tabs
+              value={kind}
+              onChange={(k) => setKind(k)}
+              items={[
+                { id: "client" as const, label: "Clients", count: allClients.data?.total },
+                { id: "supplier" as const, label: "Fournisseurs", count: allSuppliers.data?.total },
+              ]}
+            />
+          ) : undefined
         }
         filters={
           <>

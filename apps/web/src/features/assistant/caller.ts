@@ -10,28 +10,50 @@ import { useSyncExternalStore } from "react";
 import type { CallerIdentity, CallerRole } from "@kit/shared";
 
 const KEY = "kit.caller";
-const ROLES: CallerRole[] = ["unknown", "client", "sales", "direction"];
+const ROLES: CallerRole[] = ["unknown", "client", "supplier", "manager", "admin", "sales", "direction"];
 
-export const ROLE_LABEL: Record<CallerRole, string> = { unknown: "Non identifié", client: "Client", sales: "Commercial", direction: "Direction" };
+export const ROLE_LABEL: Record<CallerRole, string> = {
+  unknown: "Non identifié",
+  client: "Client",
+  supplier: "Fournisseur",
+  manager: "Commercial",
+  admin: "Direction",
+  sales: "Commercial",
+  direction: "Direction",
+};
 export const ROLE_HELP: Record<CallerRole, string> = {
   unknown: "Catalogue, produits et prix catalogue seulement. Aucune écriture.",
-  client: "Son compte seulement : ses commandes, ses habitudes. Rien sur les autres clients ni les fournisseurs.",
+  client: "Son compte seulement : ses commandes, ses habitudes et tarifs. Rien sur les autres clients ni les fournisseurs.",
+  supplier: "Sa fiche fournisseur et ses bons d'achat seulement. Aucune donnée client ni prix de vente.",
+  manager: "Accès complet au métier ERP (clients, stocks, achats, commandes, tournées).",
+  admin: "Accès complet à l'ERP + gestion de l'administrateur unique et des comptes.",
   sales: "Accès complet à l'ERP.",
   direction: "Accès complet à l'ERP.",
 };
 
-/** What the user picked, shape-checked. « Client » with no client yet is allowed here (the selector is mid-way: the client list comes next). */
+/** What the user picked, shape-checked. */
 function normalise(c: Partial<CallerIdentity> | undefined): CallerIdentity {
-  const role = ROLES.includes(c?.role as CallerRole) ? (c!.role as CallerRole) : "unknown";
+  const rawRole = ROLES.includes(c?.role as CallerRole) ? (c!.role as CallerRole) : "unknown";
+  const role: CallerRole = rawRole === "sales" ? "manager" : rawRole === "direction" ? "admin" : rawRole;
   const clientId = typeof c?.clientId === "string" && /^cli_\d+$/.test(c.clientId) ? c.clientId : undefined;
+  const supplierId = typeof c?.supplierId === "string" && /^sup_\d+$/.test(c.supplierId) ? c.supplierId : undefined;
   const actorName = typeof c?.actorName === "string" && c.actorName.trim() ? c.actorName.trim().slice(0, 80) : undefined;
+  const verified = Boolean(c?.verified);
   if (role === "unknown") return { role };
-  return { role, ...(clientId ? { clientId } : {}), ...(actorName ? { actorName } : {}) };
+  return {
+    role,
+    ...(clientId ? { clientId } : {}),
+    ...(supplierId ? { supplierId } : {}),
+    ...(actorName ? { actorName } : {}),
+    ...(verified ? { verified } : {}),
+  };
 }
 
-/** What goes on the wire, and what the server will enforce: a client without a client id is nobody (same rule as the server, Caller.declare). */
+/** What goes on the wire, and what the server will enforce. */
 export function effective(c: CallerIdentity): CallerIdentity {
-  return c.role === "client" && !c.clientId ? { role: "unknown" } : { ...c };
+  if (c.role === "client" && !c.clientId) return { role: "unknown" };
+  if (c.role === "supplier" && !c.supplierId) return { role: "unknown" };
+  return { ...c };
 }
 
 function load(): CallerIdentity {

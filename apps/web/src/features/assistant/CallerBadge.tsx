@@ -9,12 +9,20 @@ import type { CallerRole } from "@kit/shared";
 import { cn } from "@/lib/cn";
 import { useClients } from "@/lib/queries";
 import { AnchoredPopover, Button, Dot, Field, Input, Segmented, Select, type Tone } from "@/ui";
+import { UserMenu } from "@/features/auth/UserMenu";
+import { useAuth } from "@/features/auth/auth-store";
 import { caller, callerLabel, callerWire, ROLE_HELP, ROLE_LABEL, useCaller } from "./caller";
 
-const ROLE_OPTIONS = (["unknown", "client", "sales", "direction"] as const).map((id) => ({ id, label: id === "unknown" ? "Inconnu" : ROLE_LABEL[id] })); // short: it must fit one line
-const TONE: Record<CallerRole, Tone> = { unknown: "warning", client: "info", sales: "violet", direction: "violet" };
+const ROLE_OPTIONS = (["unknown", "client", "manager", "admin"] as const).map((id) => ({ id, label: id === "unknown" ? "Inconnu" : ROLE_LABEL[id] }));
+const TONE: Record<CallerRole, Tone> = { unknown: "warning", client: "info", supplier: "warning", manager: "violet", admin: "success", sales: "violet", direction: "violet" };
 
 export function CallerBadge({ effectiveRole, className }: { effectiveRole?: CallerRole; className?: string }) {
+  const { account } = useAuth();
+  if (account) return <UserMenu className={className} />;
+  return <DeclaredBadge effectiveRole={effectiveRole} className={className} />;
+}
+
+function DeclaredBadge({ effectiveRole, className }: { effectiveRole?: CallerRole; className?: string }) {
   const c = useCaller();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -72,7 +80,7 @@ export function CallerBadge({ effectiveRole, className }: { effectiveRole?: Call
             className="self-start"
           />
           <p className="text-[12px] leading-[17px] text-muted-foreground">{ROLE_HELP[c.role]}</p>
-          {c.role === "client" || c.role === "sales" || c.role === "direction" ? (
+          {c.role === "client" || c.role === "manager" || c.role === "admin" ? (
             <Field label={c.role === "client" ? "Client (obligatoire)" : "Client en cours (facultatif)"}>
               <Select
                 size="sm"
@@ -85,9 +93,9 @@ export function CallerBadge({ effectiveRole, className }: { effectiveRole?: Call
               />
             </Field>
           ) : null}
-          {c.role === "sales" || c.role === "direction" ? (
+          {c.role === "manager" || c.role === "admin" ? (
             <Field label="Votre nom (facultatif)" hint="Signe les écritures de l'agent dans l'ERP.">
-              <NameField key={c.role} value={c.actorName ?? ""} placeholder={c.role === "sales" ? "ex. Thibault" : "ex. Claire"} onCommit={(actorName) => caller.set({ ...c, actorName })} />
+              <NameField key={c.role} value={c.actorName ?? ""} placeholder={c.role === "manager" ? "ex. Thibault" : "ex. Direction"} onCommit={(actorName) => caller.set({ ...c, actorName })} />
             </Field>
           ) : null}
           {incomplete ? (

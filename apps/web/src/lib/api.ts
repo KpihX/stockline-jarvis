@@ -5,12 +5,13 @@
  * Every write is sent with x-actor: user (the voice agent / AI chat set their own actor server-side).
  */
 import type {
-  ActivityEvent, Client, ClientDetail, ClientInput, ClientSummary, Dashboard, DataPack, Id, InvoiceDetail,
-  InvoiceSummary, IsoDate, OrderDetail, OrderInput, OrderLineInput, OrderStatus, PaymentInput, PaymentSummary,
-  ProductCategory, ProductDetail, ProductSummary, PurchaseOrderDetail, PurchaseOrderInput, PurchaseOrderStatus,
-  Route, RouteRunDetail, SearchResult, StockLevel, StockMovement, Supplier, SupplierDetail, UsualBasketLine,
-  InvoiceStatus, ClientType, Product, OrderSummary, PurchaseOrderSummary,
+  Account, AccountCreateInput, AccountUpdateInput, ActivityEvent, Client, ClientDetail, ClientInput, ClientSummary, Dashboard,
+  DataPack, DemoAccount, Id, InvoiceDetail, InvoiceSummary, IsoDate, LoginResponse, OrderDetail, OrderInput, OrderLineInput,
+  OrderStatus, PaymentInput, PaymentSummary, ProductCategory, ProductDetail, ProductSummary, PurchaseOrderDetail,
+  PurchaseOrderInput, PurchaseOrderStatus, Route, RouteRunDetail, SearchResult, StockLevel, StockMovement, Supplier,
+  SupplierDetail, UsualBasketLine, InvoiceStatus, ClientType, Product, OrderSummary, PurchaseOrderSummary,
 } from "@kit/shared";
+import { auth } from "@/features/auth/auth-store";
 import type {
   ClientEvent, ClientEventInput, ClientEventSummary, SupplierEvent, SupplierEventInput, SupplierEventSummary,
 } from "@kit/shared";
@@ -48,12 +49,15 @@ function qs(params?: Query): string {
 
 async function request<T>(method: string, path: string, body?: unknown, opts: ReqOpts = {}): Promise<T> {
   let res: Response;
+  const tok = auth.token();
+  const actorName = auth.account()?.displayName ?? "Moi";
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
+        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        ...(method !== "GET" ? { "x-actor": "user", "x-actor-name": "Moi" } : {}),
+        ...(method !== "GET" ? { "x-actor": "user", "x-actor-name": encodeURIComponent(actorName) } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: opts.signal,
@@ -275,6 +279,21 @@ export const api = {
 
   admin: {
     reset: () => post<{ ok: true }>("/admin/reset"),
+  },
+
+  auth: {
+    login: (username: string, password: string) => post<LoginResponse>("/auth/login", { username, password }),
+    logout: () => post<{ ok: true }>("/auth/logout"),
+    me: () => get<Account>("/auth/me", undefined, { silent: true }),
+    demoAccounts: () => get<DemoAccount[]>("/auth/demo-accounts", undefined, { silent: true }),
+  },
+
+  accounts: {
+    list: () => get<Account[]>("/accounts"),
+    create: (body: AccountCreateInput) => post<Account>("/accounts", body),
+    update: (id: Id, body: AccountUpdateInput) => patch<Account>(`/accounts/${id}`, body),
+    resetPassword: (id: Id, password: string) => post<Account>(`/accounts/${id}/reset-password`, { password }),
+    remove: (id: Id) => del<void>(`/accounts/${id}`),
   },
 };
 

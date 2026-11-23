@@ -25,13 +25,17 @@ import HistoryPage from "@/pages/history";
 import PricesPage from "@/pages/prices";
 import GroupsPage from "@/pages/groups";
 import ContextPage from "@/pages/context";
+import LoginPage from "@/pages/login";
+import AccountsPage from "@/pages/accounts";
 
 export const router = createBrowserRouter([
+  { path: "/login", element: <LoginPage /> },
   {
     path: "/",
     element: <AppShell />,
     children: [
       { index: true, element: <DashboardPage /> },
+      { path: "accounts", element: <AccountsPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailPage /> },
       { path: "clients", element: <ClientsPage /> },
