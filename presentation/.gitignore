@@ -1,0 +1,6 @@
+build/*
+!build/*.pptx
+!build/*.pdf
+__pycache__/
+*.pyc
+.venv/

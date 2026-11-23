@@ -147,7 +147,9 @@ async def keep_warm(
     llm: LLMClient, tools: Callable[[], list[Tool]], actor_name: Callable[[], str | None],
     identity: Callable[[], tuple[Caller, str | None]] | None = None,  # (declared identity, frozen prompt tail) of the session, read at each ping
 ) -> None:
-    """While a session is open and the caller active, keep the prompt cache alive. Cancelled when the session closes."""
+    """While a session is open and the caller active, keep the Anthropic prompt cache alive. Cancelled when the session closes."""
+    if llm.provider in ("mock", "nvidia", "deepseek", "openai", "openai-compatible", "gemini"):
+        return  # only Anthropic has an explicit 5-min ephemeral cache TTL worth keeping alive
     while True:
         await asyncio.sleep(KEEPALIVE_POLL_S)
         now = time.monotonic()

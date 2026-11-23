@@ -125,7 +125,9 @@ async def execute_tool(call: ToolCall, tools: list[Tool], ctx: ToolContext) -> T
         if not tool:
             raise LookupError(f"Outil inconnu : {call.name}")
         await enforce(tool, call.arguments, ctx)  # the access policy: before anything runs, whatever the model was told or claims
-        result = guard_result(ctx, call.name, await tool.run(call.arguments, ctx))
+        from app.services.jev_router import execute_with_guards
+
+        result = guard_result(ctx, call.name, await execute_with_guards(tool, call.arguments, ctx))
         try:  # a value the model can't read back (datetime, set, object…) is the tool's error, not the turn's
             to_json(result)
         except (TypeError, ValueError) as e:

@@ -35,3 +35,15 @@ def hermetic_session_memory(tmp_path):
     memory.set_store(memory.SessionStore(cfg))
     yield
     memory.set_store(None)
+
+
+@pytest.fixture(autouse=True)
+def hermetic_jev(monkeypatch):
+    """Never call the live Jev API during unit tests unless a test mocks/enables it explicitly."""
+    from app.services import jev_router
+
+    jev_router.clear_cache()
+    jev_router.reset_latency()
+    monkeypatch.setattr(jev_router, "get_jev_client", lambda: None)
+    yield
+    jev_router.clear_cache()

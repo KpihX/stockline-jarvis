@@ -20,6 +20,7 @@ from .mock_llm import MockLLM
 from .mock_speech import MockSTT, MockTTS
 from .nvidia import NvidiaSTT
 from .openai import OpenAILLM, OpenAISTT, OpenAITTS
+from .presets import LLM_PRESETS
 from .soniox import SonioxSTT
 
 DEFAULT_MODELS = {"openai": "gpt-4.1-mini", "anthropic": "claude-sonnet-5-5", "gemini": "gemini-2.5-flash"}
@@ -50,6 +51,18 @@ def need(name: str, value: str) -> str:
 
 def make_llm_client(cfg: LLMSettings) -> LLMClient:
     model = cfg.model or DEFAULT_MODELS.get(cfg.provider, "")
+    if cfg.provider in LLM_PRESETS:  # nvidia | deepseek: readable defaults, all overridable from .env
+        preset = LLM_PRESETS[cfg.provider]
+        env_values = {"LLM_API_KEY": cfg.api_key, "NVIDIA_API_KEY": cfg.nvidia_api_key}
+        key = next((env_values[k] for k in preset.key_envs if env_values.get(k)), "")
+        return OpenAILLM(
+            cfg.model or preset.model,
+            need(" / ".join(preset.key_envs), key),
+            cfg.base_url or preset.base_url,
+            provider=cfg.provider,
+            include_usage=preset.include_usage,
+            extra_body=preset.extra_body(cfg.effort),
+        )
     match cfg.provider:
         case "mock":
             return MockLLM()
@@ -67,7 +80,9 @@ def make_llm_client(cfg: LLMSettings) -> LLMClient:
             return AnthropicLLM(model, need("LLM_API_KEY", cfg.api_key), cfg.base_url or "https://api.anthropic.com", cfg.effort)
         case "gemini":
             return GeminiLLM(model, need("LLM_API_KEY", cfg.api_key), cfg.base_url or "https://generativelanguage.googleapis.com/v1beta")
-    raise ConfigError(f'Unknown LLM_PROVIDER "{cfg.provider}" (openai | openai-compatible | anthropic | gemini | mock)')
+    raise ConfigError(
+        f'Unknown LLM_PROVIDER "{cfg.provider}" (openai | openai-compatible | nvidia | deepseek | anthropic | gemini | mock)'
+    )
 
 
 def make_stt_client(cfg: STTSettings) -> STTClient:

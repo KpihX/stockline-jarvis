@@ -36,7 +36,8 @@ class LLMSettings:
     model: str  # empty → the provider's default model
     api_key: str
     base_url: str  # empty → the provider's public endpoint
-    effort: str  # anthropic only: low | medium | high
+    effort: str  # anthropic: low | medium | high · nvidia preset: none | low | medium | high (thinking on/off)
+    nvidia_api_key: str = ""  # NVIDIA_API_KEY: fallback key for LLM_PROVIDER=nvidia (same key as NVIDIA STT)
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ settings = Settings(
         api_key=env("LLM_API_KEY"),
         base_url=env("LLM_BASE_URL"),
         effort=env("LLM_EFFORT", "low"),
+        nvidia_api_key=env("NVIDIA_API_KEY"),
     ),
     stt=STTSettings(
         provider=env("STT_PROVIDER", "mock").lower(),

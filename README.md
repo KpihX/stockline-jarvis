@@ -52,8 +52,8 @@ All three services read the single `.env` at the repo root (your team zip ships 
 | `DATA_DIR` | your company's data, relative to the repo root (`./data` in your team zip) |
 | `WEB_PORT`, `API_PORT`, `AI_PORT` | ports on your machine (5173 / 4000 / 4100) |
 | `ERP_API_URL` | where the AI service reaches the ERP in local mode (`http://localhost:4000`; Docker sets it itself) |
-| `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | `openai` · `anthropic` · `gemini` · `openai-compatible` (Groq, Mistral, OpenRouter, Ollama… via `LLM_BASE_URL`) · `mock` |
-| `LLM_EFFORT` | Anthropic only: `low` (default, fastest) · `medium` · `high` |
+| `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | `anthropic` · `nvidia` (preset `nemotron-3-ultra-550b-a55b`, `LLM_API_KEY` or `NVIDIA_API_KEY`) · `deepseek` · `openai` · `gemini` · `openai-compatible` · `mock`. **Clear `LLM_MODEL=`** when switching providers so an old model name is not sent to the new provider. |
+| `LLM_EFFORT` | Anthropic: `low` (default) · `medium` · `high` · NVIDIA Nemotron: `none`/`low` (thinking off) · `medium`/`high` (thinking on) |
 | `STT_PROVIDER`, `STT_API_KEY`, `STT_MODEL`, `STT_LANGUAGE` | `soniox` · `deepgram` · `gradium` · `openai` · `nvidia` (optional, see below) · `mock` |
 | `NVIDIA_API_KEY`, `NVIDIA_STT_FUNCTION_ID`, `NVIDIA_STT_URI`, `NVIDIA_STT_BOOST`, `NVIDIA_STT_STREAMING` | only for `STT_PROVIDER=nvidia`, all optional but the key |
 | `AI_UV_SYNC_ARGS`, `AI_APT_PACKAGES` | Docker build only: extras for the `ai` image (`--extra nvidia`, `ffmpeg`); empty = stock image |

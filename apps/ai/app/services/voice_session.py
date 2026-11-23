@@ -70,6 +70,7 @@ from app.schemas import (
 from app.schemas.base import WireModel
 from app.tools import all_tools
 
+from . import jev_router as jev_hooks
 from . import memory, turn_hints, warmup
 from .utterance import Utterance
 from .vocabulary import stt_hint
@@ -342,6 +343,7 @@ class VoiceConnection:
                 if lexicon_hints:
                     content = f"{heard}\n\n{lexicon_hints}"
                     print(f"[lexicon] {ms_since(lexicon_start)}ms, caller={conv.client_id}: {lexicon_hints.splitlines()[1:]}", flush=True)
+            content += await jev_hooks.on_final_transcript(conv, heard, spoken=utterance is not None)
             base = conv.history
             working = [*base, ChatMessage(role="user", content=content)]
             session_block = await self.freeze_block(conv)

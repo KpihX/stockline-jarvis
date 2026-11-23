@@ -25,9 +25,16 @@ class LLMPrice:
 
 
 # Longest prefix wins (model ids look like "claude-sonnet-5-5-20261001"). Haiku 5.5: prompts up to 100k tokens.
+# Sources (ESTIMATES, read 2026-11-24):
+# - Anthropic: platform.claude.com/docs/en/about-claude/pricing
+# - NVIDIA NIM build.nvidia.com: free tier ($0/tok under dev quota); hosted DeepInfra reference is $0.50 in / $2.20 out / $0.10 cache per MTok
+# - DeepSeek: api-docs.deepseek.com/quick_start/pricing ($0.30 in / $1.20 out / $0.003 cache peak; $0.15/$0.60 off-peak)
 LLM_PRICES = {
     "claude-sonnet-5-5": LLMPrice(input=2.0, output=10.0, cache_read=0.10, cache_write=2.5),
     "claude-haiku-5-5": LLMPrice(input=0.10, output=0.50, cache_read=0.01, cache_write=0.125),
+    "nvidia/nemotron-3-ultra-550b-a55b": LLMPrice(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
+    "deepseek-chat": LLMPrice(input=0.30, output=1.20, cache_read=0.003, cache_write=0.30),
+    "deepseek-flash": LLMPrice(input=0.30, output=1.20, cache_read=0.003, cache_write=0.30),
 }
 STT_USD_PER_HOUR = {"soniox": 0.12}  # real-time streaming
 TTS_USD_PER_1K_CHARS = {"elevenlabs": 0.04}  # Flash v2.5

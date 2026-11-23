@@ -34,5 +34,8 @@ AGENTS.md
 # local scratch workspace (STT lab: synthesised audio, raw results)
 tmp/
 
+# local compose override (used when switching provider locally without touching .env)
+docker-compose.override.yml
+
 # the AI service's own durable state when run without Docker (session memory, AI_STATE_DIR; Docker uses the ai-state volume)
 .state/

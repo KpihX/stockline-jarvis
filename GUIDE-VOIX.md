@@ -475,7 +475,11 @@ pour eux : ne comptez pas dessus sans votre propre clé.
 | TTS | Gradium | `default`, voix fr-FR `F7Iib4MAyHIRed0x` | REST NDJSON, PCM → mp3 (`Mp3Encoder`) | non |
 | TTS | OpenAI | `gpt-4o-mini-tts`, `alloy` | REST, mp3 | non |
 | LLM | **Anthropic** | `claude-sonnet-5-5`, `LLM_EFFORT=low` | SSE | oui |
+| LLM | NVIDIA (preset) | `nvidia/nemotron-3-ultra-550b-a55b`, `enable_thinking=false` (`low`) | SSE (OpenAI-compatible) | non (`NVIDIA_API_KEY`) |
+| LLM | DeepSeek (preset) | `deepseek-chat` (ou `LLM_MODEL=deepseek-flash`) | SSE (OpenAI-compatible) | non (`LLM_API_KEY`) |
 | Décision | **Jev** | `jev-latest` | REST | oui |
+
+**Changer de LLM** : `LLM_PROVIDER` (`anthropic` | `nvidia` | `deepseek` | `openai` | `openai-compatible` | `gemini` | `mock`), puis `make restart`. Le filtre `<think>…</think>` / `reasoning_content` empêche les tokens de raisonnement d'atteindre le TTS ou l'historique.
 
 **Changer de STT** : une seule variable, `STT_PROVIDER` (`mock` | `soniox` | `deepgram` | `gradium` | `openai` |
 `nvidia`), plus la clé du fournisseur : `STT_API_KEY` pour tous, `NVIDIA_API_KEY` (ou `STT_API_KEY`) pour `nvidia`.
