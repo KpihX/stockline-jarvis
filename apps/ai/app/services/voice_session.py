@@ -86,6 +86,12 @@ class Conversation:
     session_block: str | None = None  # prompt tail (identity + client sheet) built once and frozen for the conversation: the prompt cache keeps reading it
     client_id: str | None = None  # the caller, once the agent has identified them (a tool call about cli_…): their vocabulary is used from the next utterance
     facts: dict = field(default_factory=dict)  # business facts of the turns folded into the summary at the head of `history` (services/compaction.py)
+    # Session-management metadata (services/sessions.py): persisted automatically by memory.snapshot()/restore().
+    title: str | None = None  # short, deterministic, editable
+    surface: Literal["chat", "voice"] | None = None  # where the session was started
+    created_at: float = 0.0  # epoch seconds (0 for sessions created before this field existed)
+    turns: int = 0
+    command_ids: list[str] = field(default_factory=list)  # orders created in this session (ord_…)
 
 
 # In memory: a reconnect with the same sessionId continues the conversation.
@@ -202,6 +208,10 @@ class VoiceConnection:
     async def open(self, session_id: str | None = None, actor_name: str | None = None, caller: Caller | None = None) -> None:
         # memory → disk (reconnect after a reload / restart, services/memory.py) → a new conversation
         conv = conversations.get(session_id or "") or memory.restore(Conversation, session_id or "") or Conversation(id=session_id or str(uuid.uuid4()))
+        if not conv.surface:
+            conv.surface = "voice"  # a session first opened here keeps its origin when the Assistant resumes it
+        if not conv.created_at:
+            conv.created_at = time.time()
         if actor_name:
             conv.actor_name = actor_name
         identity_changed = caller is not None and caller != conv.caller
@@ -225,9 +235,12 @@ class VoiceConnection:
 
     async def freeze_block(self, conv: Conversation) -> str:
         """The prompt tail of this conversation (identity + preloaded client sheet), built once. Safe to call from a warm-up task and a turn."""
+        from . import sessions  # local: sessions.py imports this module (no import cycle at module load)
+
         caller, block = conv.caller, conv.session_block
         if block is None:
             block = await build_session_block(caller)
+            block = sessions.with_recent_block(block, caller, conv.id)  # 'dernières sessions' at the END, frozen with the block (prompt cache)
             if conv.caller == caller and conv.session_block is None:
                 conv.session_block = block
         return conv.session_block if conv.session_block is not None else block
@@ -306,6 +319,13 @@ class VoiceConnection:
                 await self.send(VoiceErrorMessage(message="Rien entendu — réessayez."))
                 return
             await self.send(TranscriptMessage(text=heard, final=True))
+
+            # Session metadata (services/sessions.py): the voice surface writes to the SAME store as the Assistant.
+            from . import sessions  # local: sessions.py imports this module (no import cycle at module load)
+
+            if not conv.title or conv.title == "Nouvelle session":
+                conv.title = sessions.auto_title(heard, conv.caller)
+            conv.turns = (conv.turns or 0) + 1
 
             # 1b. Likely a tool turn (stock, price, order…): the filler starts NOW, in parallel with the lexicon + model call
             speaker = Speaker(get_tts_client(), self.send, self.send_bytes)

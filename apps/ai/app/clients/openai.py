@@ -43,15 +43,14 @@ class ThinkFilter:
                 self.buf = self.buf[end + len(THINK_CLOSE) :]
                 self.inside = False
             start = self.buf.find(THINK_OPEN)
-            if start < 0:  # emit everything except a possible partial opening tag
-                keep = len(THINK_OPEN) - 1
-                tail = self.buf[-keep:] if keep else ""
-                if any(tail.startswith(THINK_OPEN[:n]) for n in range(1, len(THINK_OPEN))):
-                    out += self.buf[: len(self.buf) - len(tail)]
-                    self.buf = tail
-                else:
-                    out += self.buf
-                    self.buf = ""
+            if start < 0:  # emit everything except a possible partial opening tag at the very end
+                for n in range(len(THINK_OPEN) - 1, 0, -1):
+                    if self.buf.endswith(THINK_OPEN[:n]):
+                        out += self.buf[:-n]
+                        self.buf = self.buf[-n:]
+                        return out
+                out += self.buf
+                self.buf = ""
                 return out
             out += self.buf[:start]
             self.buf = self.buf[start + len(THINK_OPEN) :]
