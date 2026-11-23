@@ -16,7 +16,7 @@ import re
 
 from app.config import env
 
-FILLER_MIN_GAP_S = 10.0
+FILLER_MIN_GAP_S = 10.0  # no early filler if one was played less than this ago on the same connection
 
 # Kill-switches (default ON). VOICE_EARLY_FILLER=0: no filler at the transcript, only at the tool call (the V0 behaviour).
 # VOICE_TOOL_START=0: the voice session does not react to the start of a tool_use block, only to the complete call.

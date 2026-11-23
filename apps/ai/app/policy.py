@@ -118,6 +118,8 @@ POLICY: dict[str, tuple[str, str, str, str]] = {
     "learn_term":          (NO,        OWN,       ALL, ALL),
     "forget_term":         (NO,        OWN,       ALL, ALL),
     "identify_caller":     (ALL,       NO,        ALL, ALL),  # proposes candidates, NEVER upgrades the role (the UI selector does)
+    "search_sessions":     (NO,        OWN,       ALL, ALL),  # past conversations: a client only reaches its own (a clientId argument must be its own)
+    "recall_session":      (NO,        OWN,       ALL, ALL),
 }
 
 # Tools that change data: refused to `unknown` whatever the table says (belt and braces: a typo in the table cannot open a write).
@@ -194,6 +196,9 @@ def authorize(caller: Caller, tool: str, args: dict[str, Any]) -> None:
                 mine(args.get("entity_id"))
         case "forget_term":
             mine(args.get("client_id"))
+        case "search_sessions" | "recall_session":
+            if args.get("client_id") not in (None, own):
+                raise AccessDenied(DENIED_OTHER_CLIENT)
         case _:  # search, add_order_line, confirm_order, get_order: results filtered / ERP ownership check (app/agent/access.py)
             pass
 

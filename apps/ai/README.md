@@ -150,8 +150,8 @@ Every body, event and WS message is a Pydantic model in `app/schemas/` and is pu
 
 ```
 client                                         server
-start {sessionId?, actorName?}           ──►
-                                         ◄──   ready {sessionId, stt, tts, llm}
+start {sessionId?, actorName?, role?, clientId?} ──►   (the DECLARED identity: see "Identity, roles and access")
+                                         ◄──   ready {sessionId, stt, tts, llm, role, clientId?, actorName?}   (role = what the server will ENFORCE)
 audio_start {mime, hint?}                ──►   (a new utterance interrupts the agent: barge-in; hint = STT hint, mock STT returns it)
 <binary audio frames, every 100–250 ms>  ──►   streamed to the STT as they arrive
                                          ◄──   transcript {track: "caller", text, final: false, stable} …   (live, while speaking)
@@ -171,6 +171,15 @@ reset                                    ──►   history cleared, ready agai
 - `timings` = `sttMs`, `llmFirstTokenMs`, `llmTotalMs`, `ttsFirstByteMs`, `totalMs` (end of caller speech → first agent audio byte).
 - Reconnecting with the same `sessionId` keeps the history (in memory, last ~40 messages). An interrupted turn keeps
   what was heard and what the agent had started to say (`… …`).
+- **Update (session memory, `services/memory.py`):** the history now also lives in SQLite (`$AI_STATE_DIR/sessions.db`, Docker volume
+  `ai-state`; locally `<repo>/.state/`), written after each committed turn and restored on reconnect, so it survives a service reload
+  or a container recreate; `reset` deletes it. Old turns are **compacted** (last 6 verbatim, the rest → one summary of ids, order
+  lines, prices, ERP errors, unverified claims; `services/compaction.py`) instead of cut at 40 messages. Env: `AI_STATE_DIR`,
+  `SESSION_TTL_HOURS` (12), `SESSION_MAX` (200), `COMPACT_KEEP_TURNS` (6), `COMPACT_TRIGGER_TURNS` (12), `COMPACT_MAX_CHARS` (48000),
+  `COMPACT_LLM` (0 = deterministic summary only). If the state dir is unusable the service logs it once and runs memory-only.
+- **Update (latency):** `agent_tool` is sent up to three times per tool: `{name}` when the model starts the call, `{name, args}` when it
+  is complete, `{name, ok, ms}` when done. A filler plays as soon as the final transcript is known when the turn will probably need
+  the ERP (`services/turn_hints.py`); `VOICE_EARLY_FILLER=0` / `VOICE_TOOL_START=0` switch these off.
 - **Mock TTS** sends mime `audio/x-mock-wav` (a short silent WAV): the web app ignores the bytes and speaks the text
   with the browser's `speechSynthesis`.
 
@@ -223,6 +232,11 @@ if jev:
 | `TTS_PROVIDER` | mock | `elevenlabs` \| `gradium` \| `openai` \| `mock` |
 | `TTS_API_KEY` / `TTS_MODEL` / `TTS_VOICE` | per provider | elevenlabs `eleven_flash_v2_5` / `JBFqnCBsd6RMkjVDRZzb`; gradium `default` / `F7Iib4MAyHIRed0x` (Armand, fr-FR); openai `gpt-4o-mini-tts` / `alloy` |
 | `TTS_LANGUAGE` | fr | elevenlabs `language_code` (Gradium / OpenAI follow the voice) |
+| `AI_STATE_DIR` | `.state` (repo root) | where the session memory SQLite file lives; Docker sets `/state` (volume `ai-state`) |
+| `SESSION_TTL_HOURS` / `SESSION_MAX` | 12 / 200 | stored sessions expire after this many hours without a turn; oldest evicted above the cap |
+| `COMPACT_KEEP_TURNS` / `COMPACT_TRIGGER_TURNS` / `COMPACT_MAX_CHARS` | 6 / 12 / 48000 | compaction: turns kept verbatim, turns above which old ones are summarised, or history size in characters |
+| `COMPACT_LLM` | 0 | `1` = one extra background model call per compaction to tighten the summary (rejected if it drops an id) |
+| `VOICE_EARLY_FILLER` / `VOICE_TOOL_START` | 1 / 1 | `0` = filler only at the tool call (V0 behaviour) / do not react to the start of a tool call |
 
 ## Ideas to make it smarter, faster, more natural
 
@@ -254,3 +268,22 @@ curl -s 'localhost:4000/api/context?tag=vocab'                # the same rows, a
 
 `make reset` wipes the context table back to the seed, so learned entries disappear (`POST /vocab/refresh` makes the AI service notice at once). Offline evaluation: `cd apps/ai && uv run python ../../scripts/bench/vocab_eval.py`.
 Files: `phonetic.py` (keys, distances) · `resolver.py` · `catalogue.py` (global + client lexicons from the ERP) · `learned.py` (row convention) · `guard.py` · `decide.py` (Jev) · `store.py` (ERP + caches) · `runtime.py` (voice-turn glue) · `tools/vocabulary.py` · `routers/vocab.py`.
+
+
+## Identity, roles and access — `app/policy.py`
+
+Who is on the line decides what the agent may do. Four roles: `unknown` (default), `client` (bound to ONE `cli_…`), `sales`, `direction`.
+The identity is **declared** (web selector; the demo has no caller-ID) and **enforced by the server**, never by the prompt:
+
+- `WS /voice`: `start {role, clientId?, actorName?}`; `ready` echoes the effective role. A new identity on the same `sessionId` wipes the history.
+- `POST /chat` and `POST /command`: `role`, `clientId`, `actorName` in the JSON body, or the headers `x-caller-role`, `x-caller-client-id`, `x-actor-name`
+  (raw-audio `/command`); `WS /voice/command?role=…&clientId=…&actorName=…`. `make chat`: `--role client --client cli_0082`.
+- `policy.POLICY` is the one table role × tool. `agent/access.py::enforce` runs it in `execute_tool` before the tool, on the validated arguments (client = own
+  client only, order ownership checked in the ERP, `confirm_order` only after a recap and a separate explicit "oui"). `redact` strips what a role may not read from an allowed
+  result. **A new tool must be added to the table** (`tests/test_access_policy.py` fails otherwise). Denials come back as `{error, denied: true}`.
+- Prompt: `build_system_prompt(mode, actor_name, caller)` = shared prefix with the public company card (client / unknown) or the full context (sales / direction);
+  `build_session_block(caller)` = the identity rules + the preloaded client sheet (`app/preload.py`), sent as `LLMRequest.system_suffix` (its own cache breakpoint on Anthropic).
+  The voice session builds it once and freezes it. `IDENTITY_PRELOAD=0` disables the client sheet (measurement only).
+- Writes carry provenance: `x-actor-name` = « Le Refuge Payet · client déclaré » (so `createdBy` / `author` say it) and tags `voice_agent:declared:<role>`; a client's events and context rows are worded as unverified claims.
+- Tests: `tests/test_access_policy.py` (offline). Real model: `scripts/bench/adversarial.py` (typed turns; run it against a service started with `TTS_PROVIDER=mock STT_PROVIDER=mock`;
+  `--probe` needs `LLM_PROVIDER=mock`). UI: `scripts/ui-check/caller-selector.py`.

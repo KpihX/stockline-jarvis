@@ -20,13 +20,18 @@ export const ROLE_HELP: Record<CallerRole, string> = {
   direction: "Accès complet à l'ERP.",
 };
 
-/** A client without a client id is nobody: same normalisation as the server (Caller.declare). */
+/** What the user picked, shape-checked. « Client » with no client yet is allowed here (the selector is mid-way: the client list comes next). */
 function normalise(c: Partial<CallerIdentity> | undefined): CallerIdentity {
   const role = ROLES.includes(c?.role as CallerRole) ? (c!.role as CallerRole) : "unknown";
   const clientId = typeof c?.clientId === "string" && /^cli_\d+$/.test(c.clientId) ? c.clientId : undefined;
   const actorName = typeof c?.actorName === "string" && c.actorName.trim() ? c.actorName.trim().slice(0, 80) : undefined;
-  if (role === "unknown" || (role === "client" && !clientId)) return { role: "unknown" };
+  if (role === "unknown") return { role };
   return { role, ...(clientId ? { clientId } : {}), ...(actorName ? { actorName } : {}) };
+}
+
+/** What goes on the wire, and what the server will enforce: a client without a client id is nobody (same rule as the server, Caller.declare). */
+export function effective(c: CallerIdentity): CallerIdentity {
+  return c.role === "client" && !c.clientId ? { role: "unknown" } : { ...c };
 }
 
 function load(): CallerIdentity {
@@ -57,10 +62,11 @@ export const caller = {
 
 export const useCaller = (): CallerIdentity => useSyncExternalStore(caller.subscribe, caller.get);
 
-/** What goes on the wire (start message, chat / command body): optional fields left out. */
-export const callerWire = (c: CallerIdentity = state): CallerIdentity => ({ ...c });
+/** What goes on the wire (start message, chat / command body): the EFFECTIVE identity, optional fields left out. */
+export const callerWire = (c: CallerIdentity = state): CallerIdentity => effective(c);
 
 /** Short label for the badge: « Client · Le Refuge Payet », « Commercial · Thibault », « Non identifié ». */
 export function callerLabel(c: CallerIdentity): string {
+  if (c.role === "client" && !c.clientId) return "Client · à choisir";
   return c.role === "unknown" ? ROLE_LABEL.unknown : c.actorName ? `${ROLE_LABEL[c.role]} · ${c.actorName}` : ROLE_LABEL[c.role];
 }

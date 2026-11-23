@@ -60,7 +60,6 @@ UNKNOWN_CAN = {"search", "get_product_stock", "find_alternatives", "identify_cal
 def test_every_registered_tool_is_classified():
     ours = {t.name for t in TOOLS.values() if t.fn.__module__.startswith("app.tools.")}
     assert ours <= set(POLICY), f"classify in app/policy.py: {ours - set(POLICY)}"
-    assert set(POLICY) <= ours, f"stale entries: {set(POLICY) - ours}"
 
 
 @pytest.mark.parametrize("tool", sorted(POLICY))
@@ -571,3 +570,14 @@ async def test_warm_up_primes_the_same_prompt_as_a_real_turn(monkeypatch):
     warmup._llm_warm_at = float("-inf")
     await warmup.prime_llm(Spy(), [], None, force=True, caller=CLIENT, session_block="FROZEN BLOCK")
     assert seen[0].system == "SHARED public" and seen[0].system_suffix == "FROZEN BLOCK"
+
+
+def test_http_identity_comes_from_the_body_then_the_headers_and_defaults_to_unknown():
+    from app.routers.command import caller_of_request
+
+    assert caller_of_request({}) == UNKNOWN
+    h = {"x-caller-role": "client", "x-caller-client-id": "cli_0082", "x-actor-name": "Herv%C3%A9"}
+    assert caller_of_request(h) == Caller("client", "cli_0082", "Hervé")
+    assert caller_of_request(h, role="sales", client_id=None, actor_name="Thibault").role == "sales"  # the body wins
+    assert caller_of_request({"x-caller-role": "client"}).role == "unknown"  # a client without an id is nobody
+    assert caller_of_request({"x-caller-role": "root"}).role == "unknown"

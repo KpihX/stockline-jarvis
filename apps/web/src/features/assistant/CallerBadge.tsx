@@ -9,9 +9,9 @@ import type { CallerRole } from "@kit/shared";
 import { cn } from "@/lib/cn";
 import { useClients } from "@/lib/queries";
 import { AnchoredPopover, Button, Dot, Field, Input, Segmented, Select, type Tone } from "@/ui";
-import { callerLabel, caller, ROLE_HELP, ROLE_LABEL, useCaller } from "./caller";
+import { caller, callerLabel, callerWire, ROLE_HELP, ROLE_LABEL, useCaller } from "./caller";
 
-const ROLE_OPTIONS = (["unknown", "client", "sales", "direction"] as const).map((id) => ({ id, label: ROLE_LABEL[id] }));
+const ROLE_OPTIONS = (["unknown", "client", "sales", "direction"] as const).map((id) => ({ id, label: id === "unknown" ? "Inconnu" : ROLE_LABEL[id] })); // short: it must fit one line
 const TONE: Record<CallerRole, Tone> = { unknown: "warning", client: "info", sales: "violet", direction: "violet" };
 
 export function CallerBadge({ effectiveRole, className }: { effectiveRole?: CallerRole; className?: string }) {
@@ -37,7 +37,9 @@ export function CallerBadge({ effectiveRole, className }: { effectiveRole?: Call
 
   const options = (clients.data ?? []).map((cl) => ({ value: cl.id, label: cl.name, hint: cl.city }));
   const nameOf = (id: string) => clients.data?.find((cl) => cl.id === id)?.name;
-  const mismatch = effectiveRole !== undefined && effectiveRole !== c.role;
+  const wire = callerWire(c);
+  const mismatch = effectiveRole !== undefined && effectiveRole !== wire.role;  // the server enforces something else than what we declared
+  const incomplete = c.role === "client" && !c.clientId;
 
   return (
     <div ref={anchorRef} className={cn("shrink-0", className)}>
@@ -50,7 +52,7 @@ export function CallerBadge({ effectiveRole, className }: { effectiveRole?: Call
         aria-haspopup="dialog"
         title="Identité déclarée (démo) : le serveur applique les droits du rôle choisi"
       >
-        <Dot tone={mismatch ? "destructive" : TONE[c.role]} />
+        <Dot tone={mismatch ? "destructive" : incomplete ? "warning" : TONE[c.role]} />
         <span className="max-w-[200px] truncate">{callerLabel(c)}</span>
         {c.role !== "unknown" ? <span className="hidden text-[11px] font-normal text-muted-foreground 2xl:inline">déclaré</span> : null}
       </Button>
@@ -88,10 +90,10 @@ export function CallerBadge({ effectiveRole, className }: { effectiveRole?: Call
               <NameField key={c.role} value={c.actorName ?? ""} placeholder={c.role === "sales" ? "ex. Thibault" : "ex. Claire"} onCommit={(actorName) => caller.set({ ...c, actorName })} />
             </Field>
           ) : null}
-          {mismatch ? (
-            <p className="text-[12px] text-destructive">
-              Le serveur applique « {ROLE_LABEL[effectiveRole!]} » : choisissez un client pour le rôle Client.
-            </p>
+          {incomplete ? (
+            <p className="text-[12px] text-warning">Choisissez le client : en attendant, l'agent traite l'appelant comme non identifié.</p>
+          ) : mismatch ? (
+            <p className="text-[12px] text-destructive">Le serveur applique « {ROLE_LABEL[effectiveRole!]} » et non « {ROLE_LABEL[wire.role]} ».</p>
           ) : null}
           <p className="border-t border-border pt-2 text-[11.5px] leading-[16px] text-muted-foreground">
             Aucune téléphonie ni numéro appelant dans ce hackathon : l'identité est simplement déclarée ici. L'agent n'est pas cru sur parole,

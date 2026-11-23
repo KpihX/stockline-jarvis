@@ -65,7 +65,15 @@ class LLMUsage:
     cache_read_input_tokens: int | None = None  # prompt cache hit (Anthropic), ~0.1x price
 
 
-LLMEvent = LLMText | LLMToolStart | LLMToolCall | LLMUsage
+@dataclass
+class LLMFinish:
+    """Why the model stopped (OpenAI `finish_reason`: stop | tool_calls | length | content_filter …).
+    Optional and informational: the agent loop ignores it, adapters that expose it can emit it at the end of a stream."""
+
+    reason: str = ""
+
+
+LLMEvent = LLMText | LLMToolStart | LLMToolCall | LLMUsage | LLMFinish
 
 
 class LLMClient(ABC):

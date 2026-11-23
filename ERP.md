@@ -484,6 +484,10 @@ nouvelles lignes (`lin_…`, `pol_…`) sont aléatoires ; tous les autres ids c
 - **Qui écrit** : en-tête `x-actor` = `user` | `ai_chat` | `voice_agent` (valeur inconnue ou absente = `user`), plus
   `x-actor-name` facultatif (nom affiché, encodé URI). Le web envoie `user` / « Moi ». Les outils de l'agent envoient
   `ai_chat` (chat) ou `voice_agent` (voix, commande vocale).
+  Le service IA y met l'**identité déclarée** de l'appelant : `x-actor-name: Le Refuge Payet · client déclaré` (ou « Commercial déclaré »,
+  « Non identifié »…), donc `createdBy` d'une commande et `author` d'un événement disent qui parlait, et que c'est une déclaration.
+  Les événements / fiches de contexte écrits par l'agent portent aussi un tag `voice_agent:declared:<rôle>` (+ `non-verifie` pour un client) ;
+  ce qu'un client déclaré affirme est écrit « Déclaré par le client (non vérifié) : … », gravité basse. Droits par rôle : `apps/ai/app/policy.py`.
 - **En direct** : `GET /api/events/stream` (Server-Sent Events) envoie `ready` une fois, puis un événement `activity`
   par écriture validée, et `ping` toutes les 15 s. `GET /api/events?limit=50` = l'historique, plus récent d'abord.
 - **Violet** : dans le web, tout ce qui vient de `ai_chat` ou `voice_agent` est teinté violet (Activité, Accueil,
@@ -503,12 +507,12 @@ nouvelles lignes (`lin_…`, `pol_…`) sont aléatoires ; tous les autres ids c
 | **Voix · Commande** | page `/voice?mode=command`, ou `⌥ Espace` maintenu sur n'importe quelle page (HUD), ou bouton « Voix » de l'en-tête | Un commercial pilote l'ERP à la voix, une phrase à la fois, sans historique (mode `command` : agit tout de suite, répond en une phrase). Si la phrase demande de *voir* (« montre », « ouvre », « affiche »…), le web navigue vers la page de l'objet. Un clic court sur le bouton ouvre le HUD pour taper la commande. | `POST /ai/command[?speak=1]` (SSE) |
 
 Le prompt système (`apps/ai/app/agent/prompts.py`) = règles de base + règles du mode + entreprise et date du jour +
-nom de l'interlocuteur + tous les fichiers `DATA_DIR/context/*.md`. Protocoles détaillés : [apps/ai/README.md](apps/ai/README.md).
+tous les fichiers `DATA_DIR/context/*.md` **de son périmètre** (fiche publique pour un client ou un inconnu, contexte complet pour le commercial et la direction) ; l'identité déclarée de l'appelant, ses règles et sa fiche client préchargée sont à la **fin** du prompt. Protocoles détaillés : [apps/ai/README.md](apps/ai/README.md).
 
 ### Les outils de l'agent
 
 16 outils, dans `apps/ai/app/tools/`. Ils appellent l'API ERP avec `x-actor` ; ils ne contiennent pas de règle métier.
-Liste à jour : `GET http://localhost:4100/tools`.
+Liste à jour : `GET http://localhost:4100/tools`. **Qui peut appeler quoi** (rôles `unknown` / `client` / `sales` / `direction`, identité déclarée dans l'interface) : une seule table, `apps/ai/app/policy.py`, appliquée côté serveur avant l'exécution de l'outil ; un nouvel outil doit y être classé. `identify_caller(name)` propose des clients NON vérifiés, sans donner d'accès.
 
 | Outil | Ce qu'il fait | Route ERP |
 |---|---|---|

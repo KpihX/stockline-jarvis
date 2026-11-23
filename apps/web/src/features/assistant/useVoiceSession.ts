@@ -240,7 +240,7 @@ export function useVoiceSession() {
   }, [connect, stopPlayback]);
 
   // Another identity = another conversation: the server wipes the history on `start`, so the screen does too.
-  const identity = useCaller();
+  const identity = callerWire(useCaller()); // the effective one: picking « Client » before a client changes nothing on the wire
   const identityKey = JSON.stringify(identity);
   const sentIdentity = useRef(identityKey);
   useEffect(() => {

@@ -118,9 +118,9 @@ export const chat = {
 };
 
 // Another identity = another conversation: what was said and fetched for the previous one must not carry over.
-let lastIdentity = JSON.stringify(caller.get());
+let lastIdentity = JSON.stringify(callerWire());
 caller.subscribe(() => {
-  const now = JSON.stringify(caller.get());
+  const now = JSON.stringify(callerWire());
   if (now !== lastIdentity) { lastIdentity = now; chat.reset(); }
 });
 

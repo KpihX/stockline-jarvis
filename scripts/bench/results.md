@@ -50,3 +50,15 @@ this is within noise, not a regression we can prove). The filler is bounded belo
 (0.9-2.3 s): the Anthropic adapter yields `LLMToolCall` only when the whole model message has ended.
 Estimated cost per turn: €0.009-0.026 (median €0.016), almost all LLM (23.5k-token prompt re-read at each model call).
 Fillers with cached mp3: 0 TTS call at the moment; the 6 clips (96 KB) are synthesised once per process at first session open.
+
+## Early filler (at the final transcript) + early tool announce — A/B on the same code
+_2026-11-23 23:10_ · A = `VOICE_EARLY_FILLER=0 VOICE_TOOL_START=0` (port 4198), B = defaults (port 4199), two local services side by side, passes interleaved A B A B,
+`--only stock_beaufort,surnom_patates` (read-only), 2 passes = 4 real turns per variant. Raw tables were in /tmp (not kept); numbers below are the per-turn values (ms).
+
+| variant | firstSound totalMs (per turn) | median | answerMs (per turn) | median | tool1 (per turn) | median |
+|---|---|---|---|---|---|---|
+| A before | 9618 · 3228 · 3366 · 2578 | **3297** | 18538 · 5378 · 5855 · 6438 | 6146 | 7894 · 1823 · 1628 · 1363 | 1725 |
+| B after | 1633 · 1199 · 1228 · 1239 | **1234** | 7271 · 4715 · 4193 · 4936 | 4826 | 2771 · 728 · 1039 · 739 | 889 |
+
+Reading (honest): first sound −2.1 s with disjoint ranges (it is STT + ~10-30 ms now, and still a filler). The real answer is dominated by the LLM (one A turn
+took 16.7 s on the API side): the difference is within run-to-run noise, no gain claimed. `tool1` is earlier by ~0.7-1 s but n = 4.

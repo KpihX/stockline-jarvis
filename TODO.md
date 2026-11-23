@@ -42,6 +42,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
   - V0.7: the noise mix (`--noise 0.03`) is implemented but was NOT run (API quota); results are clean-audio only.
   - V0.6 has no true pre-roll (limitation documented in useVoiceSession.ts); not tested with a real microphone.
 
+## Identity, roles and access (2026-11-23, after the live-session audit)
+- [x] Declared identity (unknown / client / sales / direction): web selector (Voix, Assistant, Commande) → WS `start`, `/chat`, `/command`; persisted; changing it wipes the session
+- [x] Server-side lock: `apps/ai/app/policy.py` (one table role × tool) enforced in `execute_tool`; order ownership + explicit-yes turn for a client; redaction of results
+- [x] Public company card for client / unknown prompts, full context for sales / direction; identity + client sheet at the END (own cache block)
+- [x] Client sheet preloaded at identification (1 tool round-trip fewer on an order: 4 → 3, see DECISIONS §6)
+- [x] Unverified writes: provenance in `x-actor-name` + tags, client claims worded "Déclaré par le client (non vérifié)", low severity
+- [x] `tests/test_access_policy.py` (every role × tool, prompts, sheet, enforcement), `scripts/bench/adversarial.py` (real model + `--probe`), `scripts/ui-check/caller-selector.py`
+- [ ] Production identity: caller-ID / authentication instead of the declaration; rate-limit `identify_caller`; filter the lexicon hints for a client
+- [ ] Add `get_price` of the habitual lines to the client sheet (the order flow still calls `get_product_stock` + `get_price` per line)
+
 ## V1 — smart, fewer round-trips (~5 h)
 - [ ] V1.1 Composite tools: `identify_caller` (client + sheet + history + alerts), `quote_product` (search + stock + client price + alternatives)
 - [ ] V1.2 Lighter prompt: product glossary behind `search_context`, stable context for the cache
@@ -65,3 +75,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 ## Open questions
 - NVIDIA/Nemotron: only usable with KpihX's own NVIDIA key (kit keys = Anthropic, Soniox, ElevenLabs, Jev).
 - Dedicated private repo or keep `feat/team-01-kit` inside `stock-ai`?
+
+## Session memory + latency (2026-11-23, details DECISIONS.md §6)
+- [x] Session memory: SQLite under `$AI_STATE_DIR` (Docker volume `ai-state`), write-through per turn, restore on reconnect, TTL 12 h, cap 200, `reset` deletes, falls back to memory if the dir is missing/unwritable/corrupted; survives an uvicorn hot reload (checked live)
+- [x] Compaction instead of `trim(40)`: last 6 turns verbatim, older ones → one deterministic summary of business facts (ids, order lines, prices, ERP errors, unverified claims), background task, cache prefix untouched; optional LLM refinement behind `COMPACT_LLM` (off)
+- [x] Early filler at the final transcript (heuristic `turn_hints.py`, skipped for trivial turns / a filler < 10 s ago), never doubled by the model's text; kill-switches `VOICE_EARLY_FILLER`, `VOICE_TOOL_START`
+- [x] Tool call announced at `content_block_start` (`LLMToolStart` → `ToolStartEvent` → `agent_tool {name}` then `{name, args}`), web + shared types updated
+- [x] Measured A/B (4 real turns per variant): first sound median 3.3 s → 1.23 s (disjoint ranges); real answer NOT faster in a provable way (noise)
+  - [ ] Replay a real 12+ turn call to see the compaction at work (only synthetic histories + 1 real turn so far)
+  - [ ] Decide whether the browser keeps `sessionId` in `sessionStorage` (resume the call after F5)
+  - [ ] Measure the early-filler false-positive rate on real calls; V2.2 speculative LLM is the only lever left on the real answer

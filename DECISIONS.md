@@ -181,3 +181,106 @@ A = lexique global seul ; B = + lexique client (fiche) ; C = B + leçons apprise
 - Pas de bruit de plusieurs clients à la fois, pas d'interface d'administration (API + `curl` + onglet Contexte du client), pas d'export de la graine d'apprentissage.
 
 Reproduire : `make up`, puis `cd apps/ai && uv run python ../../scripts/bench/vocab_eval.py` (lit l'ERP en **lecture seule** et `tmp/stt-lab/results/*.json`) ; `VERBOSE=1` liste les ratés restants.
+
+## 6. Mémoire de session, compaction, filler précoce (2026-11-23)
+
+Constat (captures `tmp/captures/*pre-restart/`) : l'historique des conversations était un dictionnaire en mémoire, **perdu à chaque rechargement** d'uvicorn (le navigateur se reconnecte avec le même `sessionId`, le serveur repart d'une conversation vide), et coupé à 40 messages sans égard pour ce qu'ils contenaient.
+
+### 6.1 Mémoire persistante (`services/memory.py`)
+
+- **SQLite** `$AI_STATE_DIR/sessions.db` (Docker : volume `ai-state` monté sur `/state` ; sans Docker : `<repo>/.state/`, ignoré par git). Une ligne par `sessionId` : `meta` (JSON de tous les champs sérialisables de `Conversation` : acteur, **identité déclarée**, `client_id`, bloc de session figé, `facts`) et `history` (les `ChatMessage` en JSON, `tool_calls` et résultats d'outils inclus, donc exactement ce que `sanitize_history` attend).
+- **Écriture immédiate** après chaque tour validé (et après chaque compaction) : au pire on perd le tour en cours, qui n'était de toute façon pas encore dans l'historique. Chargement à la reconnexion avec le même `sessionId` ; `reset` supprime la ligne.
+- **TTL** `SESSION_TTL_HOURS` (12 h par défaut, rafraîchi à chaque tour) et **plafond** `SESSION_MAX` (200) avec éviction des plus anciennes. L'identité déclarée est restaurée avec la conversation : sinon la reconnexion (`start` avec le même rôle) y verrait un « changement d'identité » et **effacerait** l'historique.
+- **Jamais bloquant** : dossier absent ou en lecture seule, base verrouillée ou corrompue → une seule ligne de log, puis mémoire seule comme avant. Un fichier qui n'est pas une base est déplacé en `sessions.db.corrupt-<heure>` et recréé ; une ligne illisible est supprimée.
+- **Blocs de raisonnement (« thinking ») : non persistés.** Ils restent en mémoire (`_thinking_by_call`) et l'API Messages ne les exige que pour le tour d'outils **en cours** ; on ne stocke que des tours complets, donc un historique rechargé contient d'anciens tours d'outils sans leur thinking, et l'API les accepte (vérifié en réel, §6.4). Seule conséquence : le préfixe du cache de prompt de la conversation est réécrit une fois après un rechargement.
+
+### 6.2 Compaction à la place du `trim(40)` (`services/compaction.py`)
+
+- On garde les **6 derniers tours tels quels** (`COMPACT_KEEP_TURNS`) ; au-delà de **12 tours** (`COMPACT_TRIGGER_TURNS`) ou de ~48 000 caractères (`COMPACT_MAX_CHARS`) les tours plus anciens sont remplacés par **un seul message** (rôle `user`, suivi d'un « Bien noté. » `assistant` pour garder l'alternance). L'hystérésis (12 → 6) fait réécrire le cache de conversation une fois tous les ~6 tours, pas à chaque tour.
+- Le résumé est **extractif et déterministe** (Python pur, ~1 ms, aucun appel modèle) : client concerné (id + nom), **état de chaque commande** (n°, statut, date, lignes avec produit, quantité, prix, total, alertes ERP : ce que l'ERP a dit, pas ce que quelqu'un a affirmé), actions d'écriture et leurs erreurs, derniers prix/stocks constatés, demandes de l'appelant ayant déclenché un outil, **déclarations chiffrées de l'appelant marquées « NON vérifié »**, chiffres annoncés par l'agent, question restée en attente. Les candidats de recherche non choisis, les politesses, le bloc `[Lexique …]` disparaissent. Borné à 3 200 caractères.
+- Les coupes se font sur une frontière de tour : un appel d'outil n'est jamais séparé de son résultat (testé à chaque longueur d'historique). `facts` est conservé avec la conversation : une 2ᵉ compaction **fusionne** au lieu de relire le texte du premier résumé.
+- **Hors chemin critique** : la compaction est lancée en tâche de fond après le commit du tour (`memory.compact_later`) ; si un nouveau tour a modifié l'historique entre-temps elle abandonne, et `memory.commit` rebase un tour en cours sur un historique compacté entre-temps (rien perdu, rien dupliqué).
+- **Cache de prompt** : le résumé est dans `messages`, jamais dans le prompt système ; outils + système restent identiques octet pour octet et le point de cache posé sur le dernier bloc (`mark_last_block`) continue de fonctionner.
+- **Raffinement par LLM** (`COMPACT_LLM=1`, **désactivé par défaut**) : un appel de plus par compaction, en tâche de fond ; la réponse n'est acceptée que si elle commence par la marque, est plus courte et **garde tous les identifiants** ; sinon le résumé déterministe reste.
+
+### 6.3 Latence : filler au transcript final et annonce d'outil précoce
+
+- **Filler avant le LLM.** Dès le transcript final, `turn_hints.should_prefill` (regex, quelques µs) joue le filler pré-synthétisé si le tour va probablement utiliser l'ERP (mots stock / prix / commande / quantité / client / jours…, un chiffre, ou une vraie phrase de 5 mots ou plus qui n'est pas de la politesse). Pas de filler pour bonjour / merci / oui-non / au revoir, ni si un filler a été joué il y a moins de 10 s sur la connexion (rythme d'une prise de commande rapide). Un faux « oui » coûte un « Je regarde. » avant une réponse directe ; un faux « non » ne coûte rien : le filler part de toute façon à l'appel d'outil comme avant.
+- **Jamais doublé** : si le filler est déjà en file, le texte que le modèle écrit **avant son premier outil** n'est pas prononcé (il reste affiché). Le texte entre deux tours d'outils, lui, est toujours dit.
+- **Annonce d'outil dès `content_block_start`** : `clients/anthropic.py` émet `LLMToolStart(name)` quand le bloc `tool_use` commence (le nom est connu, les arguments arrivent encore), puis `LLMToolCall` dès `content_block_stop` (arguments complets) au lieu de la fin du message. `run_agent(announce_tools=True)` (voix seulement : `POST /chat` ne le voit pas) en tire un `ToolStartEvent` ; la session vocale envoie alors `agent_tool {name}` (sans `args`), puis `{name, args}`, puis `{name, ok, ms}`. Le web raccorde le 2ᵉ message au 1ᵉʳ (`useVoiceSession.ts`) ; `packages/shared/src/ai.ts` documente les trois messages. Les adaptateurs OpenAI / Gemini n'émettent rien de tel : ils gardent le comportement précédent.
+- **Interrupteurs** : `VOICE_EARLY_FILLER=0` et `VOICE_TOOL_START=0` rétablissent l'ancien comportement (utile en démo si le filler gêne, et c'est ce qui a permis le A/B ci-dessous).
+- Test existant modifié **volontairement** : `test_anthropic_stream_thinking_tools_and_replay` attendait `[texte, usage, appel]` ; l'ordre est maintenant `[texte, début d'outil, appel, usage]`.
+
+### 6.4 Mesures réelles (2026-11-23, voix synthétique de l'appelant, Soniox + ElevenLabs + claude-sonnet-5-5)
+
+A/B **sur le même code**, deux services locaux simultanés (A : `VOICE_EARLY_FILLER=0 VOICE_TOOL_START=0` ; B : défaut), passes entrelacées A B A B, 2 scénarios en lecture seule (`stock_beaufort`, `surnom_patates`), 2 passes = **4 tours réels par variante** (+ 2 tours pour la persistance, 1 pour le résumé : 11 tours LLM au total).
+
+| | A avant (filler au 1ᵉʳ outil) | B après | |
+|---|---|---|---|
+| premier son `totalMs` (médiane) | **3 297 ms** (2 578 · 3 228 · 3 366 · 9 618) | **1 234 ms** (1 199 · 1 228 · 1 239 · 1 633) | plages disjointes : gain réel ≈ −2,1 s |
+| vraie réponse `answerMs` (médiane) | 6 146 ms (5 378 · 5 855 · 6 438 · 18 538) | 4 826 ms (4 193 · 4 715 · 4 936 · 7 271) | **dans le bruit** : dominée par le LLM (`llm1st` 2,9-5,5 s de chaque côté, un tour A a pris 16,7 s côté API, un autre a fait 3 outils) |
+| 1ᵉʳ outil annoncé `tool1` (médiane) | 1 725 ms | 889 ms | indicatif (n = 4, voir ci-dessous) |
+
+- Le premier son vaut désormais STT + ~10-30 ms (`sttMs` 1,2-1,7 s) : c'est la borne basse du filler, il ne descendra plus que par le STT. **C'est toujours un filler, pas une information** (`firstSoundKind: filler`) ; la réponse réelle n'est pas plus rapide de façon démontrable.
+- `tool1` plus tôt de ~0,7-1 s sur 3 tours sur 4 : plausible (durée de génération des arguments entre début et fin de bloc), mais n = 4 : je ne le revendique pas. Il ne pilote plus le premier son que sur les tours que l'heuristique rate.
+- Aucun coût LLM supplémentaire (€0,009-0,017 par tour, comme avant) ; la compaction déterministe n'appelle aucun modèle.
+- **Persistance, réel** : session `e2e-mem-1` sur la pile Docker : tour 1 (outil, « du Beaufort d'alpage en stock ? »), **rechargement à chaud d'uvicorn** (déclenché par une modification de fichier), reconnexion avec le même `sessionId`, tour 2 (« le prix de ce produit dont on parlait ») → l'agent parle bien du Beaufort chalet d'alpage, aucune erreur 400 malgré l'absence du thinking du tour 1. Le volume `ai-state` contenait bien la base ; `reset` a vidé la ligne.
+- **Résumé accepté par l'API, réel** : un historique compacté (résumé + « Bien noté. » + 6 tours) injecté dans une session a été accepté par Anthropic ; l'agent a refusé de détailler la commande à une identité « non identifiée » : la politique d'accès (`policy.py`) s'applique à ce que contient le résumé comme au reste.
+
+### 6.5 Limites honnêtes
+
+- La **compaction n'a été exercée que sur des historiques synthétiques** (tests) et sur un seul tour réel ; aucune vraie conversation de plus de 12 tours n'a été rejouée. Les seuils (6 / 12 tours, 48 000 caractères) sont des choix raisonnés, pas des mesures. L'extraction s'appuie sur la forme des résultats d'outils actuels (`id` + `name`/`label`/`number`, résumés de commande `summarize_order`) : un nouvel outil dont le résultat a une autre forme n'alimente pas le résumé tant qu'on n'y pense pas.
+- Le résumé est en français, concis et **pas exact au mot près** pour les paroles de l'appelant (extraits de 170 caractères). Les ids et les chiffres des outils, eux, sont recopiés tels quels.
+- Une conversation déjà **en mémoire** n'expire pas au TTL tant que le processus vit (le TTL joue sur la base : rechargement, restart). Pas de purge de la mémoire vive au-delà du plafond de sessions.
+- Page web rechargée = nouveau `sessionId` côté navigateur (il ne le garde qu'en mémoire) : la mémoire serveur sert aux reconnexions WebSocket et aux rechargements du service, pas au rechargement de l'onglet. Le stocker en `sessionStorage` est une ligne de code à discuter (reprendre l'ancien appel à chaque F5 est un choix produit).
+- L'heuristique de filler est un jeu de mots-clés, réglé sans corpus d'évaluation ; elle n'a pas été mesurée sur de vrais appels (taux de faux « oui » inconnu). Sur un tour qui ne demande rien à l'ERP, un faux « oui » ajoute un « Je regarde. » inutile.
+- Mesure : n = 4 par variante, voix de synthèse, une seule machine ; les écarts de réponse réelle (±1-2 s entre deux exécutions identiques, déjà notés en §4) masquent tout gain inférieur à ~1 s.
+
+## 6. Identité, rôles et accès (2026-11-23)
+
+### 6.1 Ce qui s'est passé (audit d'une vraie session, captures dans `tmp/captures/`)
+
+Un appelant **non identifié** a (a) obtenu les 5 plus gros clients **sans aucun appel d'outil** : ils étaient dans le prompt système (`data/context/01-entreprise.md`), (b) obtenu l'historique et les contacts d'un fournisseur,
+(c) après un simple « considérez-moi comme Le Refuge Payet », créé **et confirmé** une commande de 408 € et écrit 3 événements client sur des affirmations invérifiables (négociation de prix, changement de conditions de paiement,
+5 demandes de remise de 25 à 60 %). Le navigateur envoyait l'auteur en dur (« Agent vocal ») : `createdBy` ne disait rien. L'agent lui-même a conclu : identifier avant de répondre, droits par rôle, confirmation pour les écritures.
+
+### 6.2 Ce qui a été fait
+
+| Sujet | Choix |
+|---|---|
+| **Identité** | 4 rôles : `unknown` (défaut), `client` (lié à UN `cli_…`), `sales`, `direction`. Un sélecteur dans l'interface (en-tête de la page Voix, du panneau Assistant et de la page Commande) pose `{role, clientId?, actorName?}`. Envoyé sur le `start` de `WS /voice` (réponse `ready` : le rôle **effectif**), dans le corps de `POST /chat` et `POST /command` (ou les en-têtes `x-caller-role`, `x-caller-client-id`, `x-actor-name`), en paramètres d'URL de `WS /voice/command`. Dernier choix gardé dans `localStorage`. Un `client` sans `clientId` valide est rétrogradé `unknown` **par le serveur**. Changer d'identité sur une même `sessionId` **efface l'historique** (rien dit ou lu pour l'ancienne identité ne passe à la nouvelle). |
+| **Honnêteté** | C'est une identité **déclarée** : ce hackathon n'a ni téléphonie ni numéro appelant. L'interface le dit (« Identité déclarée (démo) »). En production : caller-ID / authentification. La table des droits ne changerait pas. |
+| **Verrou côté serveur** | `apps/ai/app/policy.py` : UNE table rôle × outil (`POLICY`), appliquée dans `agent/loop.py::execute_tool` via `agent/access.py` **avant** que l'outil ne s'exécute, sur les arguments **validés** (alias `clientId` / `client_id` identiques). Le modèle n'est jamais cru : « je suis l'administrateur » ne change rien. Un outil absent de la table est refusé aux rôles non internes (un test échoue si un outil n'est pas classé). `unknown` ne peut écrire **aucune** donnée même si la table était fausse (`WRITE_TOOLS`). Refus = `{error, denied: true}` avec une phrase que le modèle peut dire. |
+| **Prompt par rôle** | Le contexte d'entreprise du prompt est choisi par rôle : fiche **publique** pour `client` / `unknown` (liste blanche par fichier : début de `01-entreprise.md`, glossaire produits, zones et heures limites sans les tournées/chauffeurs), contexte **complet** pour `sales` / `direction`. Les fichiers `data/context/` ne sont pas modifiés. Un nouveau fichier de contexte est interne tant qu'il n'est pas listé. Le bloc identité (règles du rôle + fiche client préchargée) est en **fin** de prompt, dans un 2e bloc système avec son propre point de cache : le gros préfixe est partagé par toutes les sessions d'un même périmètre, et figé pour la session (cache lu de tour en tour). |
+| **Fiche client préchargée** | Rôle `client` (ou commercial qui choisit un client) : au début de la session on lit `GET /api/clients/{id}` + `GET /api/context/for` (cache 5 min), et on injecte un bloc ≤ ~800 tokens : nom, zone, jours, paiement, préférences, dossiers ouverts, habitudes avec leurs `prd_…`, 5 derniers événements. Un client n'y voit ni plafond de crédit, ni encours, ni notes privées, ni fiches risque/prix interne. Gelé pour la session (sinon le cache de prompt serait invalidé). Sans ERP : pas de fiche, les outils restent. |
+| **Écritures non vérifiées** | `unknown` : aucune écriture. `client` : seulement sur son `cli_…` ; commande confirmée seulement si elle lui appartient (vérifié dans l'ERP), brouillon uniquement pour ajouter une ligne, et **un « oui » explicite dans un tour séparé** du brouillon (le serveur refuse `confirm_order` dans le tour où le brouillon a été créé ou modifié, ou sans « oui »). Tout événement écrit par un client est « Déclaré par le client (non vérifié) : … », « Le client affirme ou demande : … », gravité **basse**, types limités ; `save_context` d'un client : `preference` / `logistics` sur lui-même, mêmes mentions, jamais `policy` / `pricing` / `risk`. Provenance sur **chaque** écriture : en-tête `x-actor-name` = « Le Refuge Payet · client déclaré » (donc `createdBy` / `author`) + tags `voice_agent:declared:<rôle>` (et `non-verifie` pour un client). Pas de changement de schéma : `source` du contexte est une énumération fermée, la provenance fine passe par les `tags`. |
+| **`identify_caller(name)`** | Propose au plus 3 candidats, noms seulement pour un inconnu, marqués `unverified`. Ne donne aucun accès : le rôle ne change que par le sélecteur. |
+
+### 6.3 Table des droits
+
+| Outil | unknown | client | sales | direction |
+|---|---|---|---|---|
+| `search` | produits seulement | produits + son client | tout | tout |
+| `get_product_stock`, `find_alternatives` | champs publics (pas de réservé, arrivages, DLC) | idem | tout | tout |
+| `get_price`, `get_client`, `get_client_history`, `get_context`, `search_context`, `resolve_mention` | non | son client (champs internes masqués) | tout | tout |
+| `create_draft_order`, `add_order_line`, `confirm_order`, `get_order` | non | ses commandes (confirmation : « oui » séparé) | tout | tout |
+| `log_client_event`, `save_context` | non | son client, non vérifié, types restreints | tout | tout |
+| `learn_term`, `forget_term` | non | son client | tout | tout |
+| `get_supplier_history`, `log_supplier_event` | non | non | tout | tout |
+| `identify_caller` | oui (candidats) | non | oui | oui |
+
+### 6.4 Résultats (modèle réel `claude-sonnet-5-5`, tours **tapés**, `scripts/bench/adversarial.py`)
+
+- 15 scénarios / 43 contrôles : inconnu qui demande les clients, les fournisseurs, se dit « administrateur » puis demande un historique fournisseur, se dit Le Refuge Payet pour faire confirmer une commande, injection de prompt, outils forcés ;
+  client `cli_0082` qui interroge un autre client (`cli_0033`), les fournisseurs, fixe un prix à 1,96 €, exige 60 % de remise, passe une commande normale ; commercial en contrôle positif. Les contrôles lisent **l'état de l'ERP** après coup (commandes, événements, prix).
+- Le verrou côté serveur est exercé sans modèle ni coût par `--probe` (historique forgé sur `POST /chat` + LLM mock qui tente toujours l'outil interdit) : 5/5 refus ou passages attendus.
+- Chiffres exacts, échecs restants et mesure de la fiche préchargée : voir le rapport de la passe et `tmp/captures/20261123_post-identity/`.
+
+### 6.5 Limites honnêtes
+
+- **L'identité est déclarée, pas prouvée** : qui tient l'interface choisit son rôle. Le verrou protège contre ce que le modèle dit ou se laisse dire, pas contre quelqu'un qui choisit « direction ». En production il faut le caller-ID ou une authentification (et une vraie vérification avant d'ouvrir un compte client).
+- Le sélecteur s'applique à l'interface de la démo ; `POST /chat` et `WS /voice` acceptent n'importe quel rôle déclaré par leur appelant, comme tout le reste de cette API sans authentification.
+- Les conseils d'écoute du lexique (bloc `[Lexique …]` sur les tours parlés) ne sont pas filtrés pour un client : un mot proche du nom d'un autre client peut le lui faire proposer. Ils sont coupés pour `unknown`.
+- Un inconnu peut deviner des noms de clients un par un avec `identify_caller` (3 candidats, sans id ni détail) ; pas de limitation de débit.
+- Les modèles actuels refusent d'eux-mêmes la plupart des attaques (aucun des appels interdits n'a été tenté dans nos essais réels) : c'est le test `--probe` et les tests unitaires qui prouvent le verrou, pas le comportement du modèle.
+- La confirmation « oui explicite » est une détection par mots (oui, d'accord, ok, confirme…) : elle peut refuser à tort une confirmation formulée autrement (l'agent redemande).

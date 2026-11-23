@@ -11,7 +11,7 @@ import pytest
 from app.schemas import ChatMessage, ToolCall
 from app.services import compaction, memory, voice_session
 from app.services.memory import MemorySettings, SessionStore
-from tests.test_compaction import ORDER, assert_paired, chatter, order_call
+from tests.test_compaction import assert_paired, chatter, order_call
 
 
 def cfg(tmp_path, **kw) -> MemorySettings:
