@@ -13,9 +13,9 @@ from .base import WireModel
 
 ChatRole = Literal["system", "user", "assistant", "tool"]
 ChatMode = Literal["chat", "voice", "command"]
-# Who is on the line (DECLARED identity: the demo has no caller-ID). The server enforces what the role may do (app/policy.py).
-# unknown = not identified (default) · client = bound to ONE client id · sales = commercial · direction = management (both internal).
-CallerRole = Literal["unknown", "client", "sales", "direction"]
+# Who is on the line. When authenticated via Bearer token (`auth.py`), verified=True; otherwise declared (if ALLOW_DECLARED_IDENTITY=1) or unknown.
+# unknown = public catalogue only · client = own cli_ · supplier = own sup_ · manager (alias sales) = business team · admin (alias direction) = full access.
+CallerRole = Literal["unknown", "client", "supplier", "manager", "admin", "sales", "direction"]
 
 
 class ToolCall(WireModel):
@@ -43,13 +43,16 @@ class ToolInfo(WireModel):
 
 
 class ChatRequest(WireModel):
-    messages: list[ChatMessage] = Field(description="Full conversation so far (no system message: the harness adds it)")
+    messages: list[ChatMessage] = Field(description="Latest message (or full history when no sessionId is passed)")
+    session_id: str | None = Field(None, description="Shared server session id (unifies Assistant chat and /voice)")
+    current_path: str | None = Field(None, description="Active frontend route so the agent knows what screen the user is viewing")
     mode: ChatMode | None = Field(
         None, description="voice → short spoken-style answers; command → single-turn, act-first, one line"
     )
     actor_name: str | None = Field(None, description="Declared name of the caller (shown as the author of ERP writes)")
     role: CallerRole | None = Field(None, description="Declared role (default unknown). Header fallback: x-caller-role")
-    client_id: str | None = Field(None, description="cli_… the caller is bound to (role client), or the client a commercial is working on. Header fallback: x-caller-client-id")
+    client_id: str | None = Field(None, description="cli_… the caller is bound to (role client), or the client a manager is working on. Header fallback: x-caller-client-id")
+    supplier_id: str | None = Field(None, description="sup_… the caller is bound to (role supplier). Header fallback: x-caller-supplier-id")
 
 
 class Usage(WireModel):

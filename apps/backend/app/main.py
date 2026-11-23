@@ -23,6 +23,8 @@ from app.core.listing import ListQuery
 from app.core.utils import js_str
 from app.dependencies import ERROR_RESPONSES
 from app.routers import (
+    accounts,
+    auth as auth_router,
     billing,
     client_events,
     clients,
@@ -44,11 +46,14 @@ log = logging.getLogger("api")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.services.auth import ensure_accounts_seeded
+
     source = "existing database"
     if is_seeded():
         load_all()
     else:
         source = reset_from_pack()
+    ensure_accounts_seeded()
     log.info("today=%s — %s: %s", get_meta()["today"], source, counts())
     warm_up()
     yield
@@ -80,10 +85,49 @@ app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=".*",
     allow_methods=["*"],
-    allow_headers=["content-type", "x-actor", "x-actor-name"],
+    allow_headers=["content-type", "authorization", "x-actor", "x-actor-name"],
 )
 
+
+@app.middleware("http")
+async def enforce_bearer_scope(request: Request, call_next):
+    """When a user Bearer token is present (not an AI service call), restrict client/supplier routes to their own scope."""
+    if request.method == "OPTIONS" or request.headers.get("x-actor") in ("ai_chat", "voice_agent"):
+        return await call_next(request)
+    auth_hdr = request.headers.get("authorization") or ""
+    if auth_hdr.lower().startswith("bearer "):
+        from app import crud
+        from app.services.auth import verify_token
+
+        acc = verify_token(auth_hdr.split(" ", 1)[1].strip())
+        if acc:
+            role, eid, path = acc.get("role"), acc.get("entityId"), request.url.path
+            if role == "client":
+                if any(path.startswith(p) for p in ("/api/suppliers", "/api/purchase-orders", "/api/receivables", "/api/accounts", "/api/admin")):
+                    return error(403, "forbidden", "Accès refusé pour un compte client.")
+                if path.startswith("/api/clients/") and eid and not path.startswith(f"/api/clients/{eid}"):
+                    return error(403, "forbidden", "Vous ne pouvez consulter que votre propre compte client.")
+                if path.startswith("/api/orders/") and eid:
+                    oid = path.split("/")[3] if len(path.split("/")) > 3 else ""
+                    order = crud.orders.get(oid)
+                    if order and order.get("clientId") != eid:
+                        return error(403, "forbidden", "Cette commande appartient à un autre client.")
+            elif role == "supplier":
+                if any(path.startswith(p) for p in ("/api/clients", "/api/orders", "/api/invoices", "/api/payments", "/api/receivables", "/api/prices", "/api/price-rules", "/api/routes", "/api/route-runs", "/api/accounts", "/api/admin")):
+                    return error(403, "forbidden", "Accès refusé pour un compte fournisseur.")
+                if path.startswith("/api/suppliers/") and eid and not path.startswith(f"/api/suppliers/{eid}"):
+                    return error(403, "forbidden", "Vous ne pouvez consulter que votre propre fiche fournisseur.")
+                if path.startswith("/api/purchase-orders/") and eid:
+                    pid = path.split("/")[3] if len(path.split("/")) > 3 else ""
+                    po = crud.purchase_orders.get(pid)
+                    if po and po.get("supplierId") != eid:
+                        return error(403, "forbidden", "Cet achat appartient à un autre fournisseur.")
+    return await call_next(request)
+
+
 for router in [
+    auth_router.router,
+    accounts.router,
     system.router,
     clients.router,
     client_events.router,

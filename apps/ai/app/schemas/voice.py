@@ -20,9 +20,11 @@ class StartMessage(WireModel):
 
     type: Literal["start"] = "start"
     session_id: str | None = None
+    token: str | None = None  # optional Bearer token (verified by app/auth.py against GET /api/auth/me)
     actor_name: str | None = None  # declared name of the caller: author of the ERP writes of the session
-    role: CallerRole | None = None  # DECLARED role (default unknown; the demo has no caller-ID). The server enforces it (app/policy.py)
-    client_id: str | None = None  # cli_… the caller is bound to (role client), or the client a commercial works on. Changing the identity of a sessionId wipes its history
+    role: CallerRole | None = None  # DECLARED role fallback (when ALLOW_DECLARED_IDENTITY=1 and no token).
+    client_id: str | None = None  # cli_… the caller is bound to (role client), or the client a manager works on.
+    supplier_id: str | None = None  # sup_… the caller is bound to (role supplier).
 
 
 class AudioStartMessage(WireModel):
@@ -71,9 +73,11 @@ class ReadyMessage(WireModel):
     stt: str
     tts: str
     llm: str
-    role: CallerRole = "unknown"  # the identity the server will ENFORCE (a client without a valid clientId is downgraded to unknown)
+    role: CallerRole = "unknown"  # the identity the server will ENFORCE
     client_id: str | None = None
+    supplier_id: str | None = None
     actor_name: str | None = None
+    verified: bool = False
 
 
 class TranscriptMessage(WireModel):

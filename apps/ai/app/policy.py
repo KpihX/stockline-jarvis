@@ -10,12 +10,11 @@ The server never trusts the model: a prompt rule is a hint, this module is the l
 needs the ERP, "does this order belong to the caller", lives in app/agent/access.py and calls `order_owner_ok` here).
 
 Roles
-    unknown    not identified (default): catalogue, product info and catalogue prices only, NO write, nothing about any client.
+    unknown    not identified (default): catalogue, product info and catalogue prices only, NO write, nothing about any client or supplier.
     client     bound to ONE client id: reads and writes only about it. No suppliers, no other clients, no internal policy / risk notes.
-    sales      commercial: everything.
-    direction  management: everything (own column so the two can diverge).
-
-Production would replace the declared identity by caller-ID / authentication; this table would not change.
+    supplier   bound to ONE supplier id: reads/writes only its own supplier record, events and public catalogue. No clients, no sales prices, no client orders.
+    manager    commercial (legacy alias: sales): all business tools.
+    admin      management (legacy alias: direction): everything.
 """
 
 from __future__ import annotations
@@ -26,12 +25,31 @@ from typing import Any, Literal
 
 from app.schemas.chat import CallerRole
 
-Role = CallerRole
-ROLES: tuple[Role, ...] = ("unknown", "client", "sales", "direction")
-INTERNAL: tuple[Role, ...] = ("sales", "direction")
+Role = Literal["unknown", "client", "supplier", "manager", "admin"]
+ROLES: tuple[Role, ...] = ("unknown", "client", "supplier", "manager", "admin")
+ROLE_ALIAS: dict[str, Role] = {"sales": "manager", "direction": "admin"}
+INTERNAL: tuple[str, ...] = ("manager", "admin", "sales", "direction")
 
 CLIENT_ID = re.compile(r"^cli_\d{1,9}$")
-ROLE_LABEL = {"unknown": "non identifié", "client": "client déclaré", "sales": "commercial déclaré", "direction": "direction déclarée"}
+SUPPLIER_ID = re.compile(r"^sup_\d{1,9}$")
+ROLE_LABEL = {
+    "unknown": "non identifié",
+    "client": "client déclaré",
+    "supplier": "fournisseur déclaré",
+    "manager": "commercial déclaré",
+    "sales": "commercial déclaré",
+    "admin": "direction déclarée",
+    "direction": "direction déclarée",
+}
+VERIFIED_LABEL = {
+    "unknown": "non identifié",
+    "client": "client vérifié",
+    "supplier": "fournisseur vérifié",
+    "manager": "manager vérifié",
+    "sales": "commercial vérifié",
+    "admin": "administrateur vérifié",
+    "direction": "administrateur vérifié",
+}
 NAME_MAX = 80
 
 
@@ -45,23 +63,72 @@ def clean_name(name: str | None) -> str | None:
     return n[:NAME_MAX] or None
 
 
+def _norm_role(role: str | None) -> Role:
+    if not role:
+        return "unknown"
+    r = ROLE_ALIAS.get(role, role)
+    return r if r in ROLES else "unknown"  # type: ignore[return-value]
+
+
 @dataclass(frozen=True)
 class Caller:
-    """The declared identity of a session. Build it with `Caller.declare` (it normalises); the default is the safest one."""
+    """The identity of a session (verified via token, or declared when ALLOW_DECLARED_IDENTITY=1). Build with `Caller.verified_account` or `Caller.declare`."""
 
     role: Role = "unknown"
-    client_id: str | None = None  # client role: the ONE client they are; sales / direction: the client they are working on (optional)
+    client_id: str | None = None  # client role: the ONE client they are; manager/admin: optional working client
     actor_name: str | None = None
+    supplier_id: str | None = None  # supplier role: the ONE supplier they are
+    verified: bool = False
+    account_id: str | None = None
 
     @classmethod
-    def declare(cls, role: str | None = None, client_id: str | None = None, actor_name: str | None = None) -> Caller:
-        """Normalise what the UI sent: an unknown role or a client without a valid cli_… id is `unknown`, never a guess."""
+    def declare(
+        cls,
+        role: str | None = None,
+        client_id: str | None = None,
+        actor_name: str | None = None,
+        supplier_id: str | None = None,
+    ) -> Caller:
+        """Normalise a declared identity: an unknown role or a client/supplier without a valid id is `unknown`, never a guess."""
         name = clean_name(actor_name)
-        cid = client_id.strip() if client_id and CLIENT_ID.match(client_id.strip()) else None
-        r: Role = role if role in ROLES else "unknown"  # type: ignore[assignment]
+        cid_raw = (client_id or "").strip()
+        sid_raw = (supplier_id or "").strip()
+        r = _norm_role(role)
+        if r == "supplier" and not sid_raw and SUPPLIER_ID.match(cid_raw):
+            sid_raw, cid_raw = cid_raw, ""
+        cid = cid_raw if CLIENT_ID.match(cid_raw) else None
+        sid = sid_raw if SUPPLIER_ID.match(sid_raw) else None
         if r == "client" and not cid:
             r = "unknown"
-        return cls(r, cid if r != "unknown" else None, name)
+        if r == "supplier" and not sid:
+            r = "unknown"
+        return cls(
+            role=r,
+            client_id=cid if r in ("client", "manager", "admin") else None,
+            actor_name=name,
+            supplier_id=sid if r == "supplier" else None,
+            verified=False,
+        )
+
+    @classmethod
+    def verified_account(cls, acc: dict[str, Any]) -> Caller:
+        """Build a verified Caller from GET /api/auth/me payload."""
+        r = _norm_role(acc.get("role"))
+        eid = acc.get("entityId")
+        cid = eid if r == "client" and eid and CLIENT_ID.match(str(eid)) else None
+        sid = eid if r == "supplier" and eid and SUPPLIER_ID.match(str(eid)) else None
+        if r == "client" and not cid:
+            return UNKNOWN
+        if r == "supplier" and not sid:
+            return UNKNOWN
+        return cls(
+            role=r,
+            client_id=cid,
+            actor_name=clean_name(acc.get("displayName") or acc.get("username")),
+            supplier_id=sid,
+            verified=True,
+            account_id=acc.get("id"),
+        )
 
     @property
     def internal(self) -> bool:
@@ -73,14 +140,16 @@ class Caller:
 
     @property
     def erp_name(self) -> str:
-        """`x-actor-name` of every ERP write: who the agent was talking to AND that this is a declaration, not a proof."""
-        label = ROLE_LABEL[self.role]
+        """`x-actor-name` of every ERP write: who the agent was talking to + verified/declared tag."""
+        labels = VERIFIED_LABEL if self.verified else ROLE_LABEL
+        label = labels[self.role]
         return f"{self.actor_name} · {label}" if self.actor_name else label.capitalize()
 
     @property
     def provenance(self) -> str:
-        """Tag on every record the agent writes (events, context rows): `voice_agent:declared:client`."""
-        return f"voice_agent:declared:{self.role}"
+        """Tag on every record the agent writes: `voice_agent:verified:client` or `voice_agent:declared:client`."""
+        kind = "verified" if self.verified else "declared"
+        return f"voice_agent:{kind}:{self.role}"
 
 
 UNKNOWN = Caller()
@@ -92,57 +161,61 @@ def context_scope(caller: Caller) -> Literal["public", "full"]:
 
 
 # ── The table ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-# NO: refused · ALL: allowed · OWN: only about the caller's own client (arguments checked, results filtered)
+# NO: refused · ALL: allowed · OWN: only about the caller's own client/supplier (arguments checked, results filtered)
 # CATALOGUE: product-level information only (arguments / results restricted to the public catalogue)
 NO, ALL, OWN, CATALOGUE = "no", "all", "own", "catalogue"
 
-#                          unknown    client   sales  direction
-POLICY: dict[str, tuple[str, str, str, str]] = {
-    "search":              (CATALOGUE, OWN,       ALL, ALL),  # unknown: products only. client: products + its own client record
-    "get_product_stock":   (CATALOGUE, CATALOGUE, ALL, ALL),  # stock level, list price: no reservations, arrivals, expiry
-    "find_alternatives":   (CATALOGUE, CATALOGUE, ALL, ALL),
-    "get_price":           (NO,        OWN,       ALL, ALL),  # a negotiated price is client-specific
-    "get_client":          (NO,        OWN,       ALL, ALL),
-    "get_client_history":  (NO,        OWN,       ALL, ALL),
-    "log_client_event":    (NO,        OWN,       ALL, ALL),  # client: always recorded as an unverified claim
-    "get_context":         (NO,        OWN,       ALL, ALL),
-    "search_context":      (NO,        OWN,       ALL, ALL),
-    "save_context":        (NO,        OWN,       ALL, ALL),  # client: preference / logistics facts about itself, flagged unverified
-    "get_supplier_history": (NO,       NO,        ALL, ALL),
-    "log_supplier_event":  (NO,        NO,        ALL, ALL),
-    "create_draft_order":  (NO,        OWN,       ALL, ALL),
-    "add_order_line":      (NO,        OWN,       ALL, ALL),  # order ownership checked against the ERP
-    "confirm_order":       (NO,        OWN,       ALL, ALL),  # + explicit confirmation turn for the client
-    "get_order":           (NO,        OWN,       ALL, ALL),
-    "resolve_mention":     (NO,        OWN,       ALL, ALL),  # client: products and itself only
-    "learn_term":          (NO,        OWN,       ALL, ALL),
-    "forget_term":         (NO,        OWN,       ALL, ALL),
-    "identify_caller":     (ALL,       NO,        ALL, ALL),  # proposes candidates, NEVER upgrades the role (the UI selector does)
-    "search_sessions":     (NO,        OWN,       ALL, ALL),  # past conversations: a client only reaches its own (a clientId argument must be its own)
-    "recall_session":      (NO,        OWN,       ALL, ALL),
+#                          unknown    client     supplier   manager  admin
+POLICY: dict[str, tuple[str, str, str, str, str]] = {
+    "search":               (CATALOGUE, OWN,       CATALOGUE, ALL, ALL),  # supplier: products + own supplier record in redact()
+    "get_product_stock":    (CATALOGUE, CATALOGUE, CATALOGUE, ALL, ALL),  # stock level, list price only
+    "find_alternatives":    (CATALOGUE, CATALOGUE, CATALOGUE, ALL, ALL),
+    "get_price":            (NO,        OWN,       NO,        ALL, ALL),  # sales price is client-specific; supplier must NOT see sales pricing
+    "get_client":           (NO,        OWN,       NO,        ALL, ALL),
+    "get_client_history":   (NO,        OWN,       NO,        ALL, ALL),
+    "log_client_event":     (NO,        OWN,       NO,        ALL, ALL),
+    "get_context":          (NO,        OWN,       OWN,       ALL, ALL),  # client: own cli_; supplier: own sup_ + product/category
+    "search_context":       (NO,        OWN,       OWN,       ALL, ALL),
+    "save_context":         (NO,        OWN,       OWN,       ALL, ALL),  # client/supplier: restricted kinds about own entity
+    "get_supplier_history": (NO,        NO,        OWN,       ALL, ALL),  # supplier: own sup_ ONLY
+    "log_supplier_event":   (NO,        NO,        OWN,       ALL, ALL),  # supplier: own sup_ ONLY
+    "create_draft_order":   (NO,        OWN,       NO,        ALL, ALL),
+    "add_order_line":       (NO,        OWN,       NO,        ALL, ALL),
+    "confirm_order":        (NO,        OWN,       NO,        ALL, ALL),
+    "get_order":            (NO,        OWN,       NO,        ALL, ALL),
+    "resolve_mention":      (NO,        OWN,       CATALOGUE, ALL, ALL),  # supplier: products only
+    "learn_term":           (NO,        OWN,       NO,        ALL, ALL),
+    "forget_term":          (NO,        OWN,       NO,        ALL, ALL),
+    "identify_caller":      (ALL,       NO,        NO,        ALL, ALL),
+    "search_sessions":      (NO,        OWN,       NO,        ALL, ALL),
+    "recall_session":       (NO,        OWN,       NO,        ALL, ALL),
 }
 
 # Tools that change data: refused to `unknown` whatever the table says (belt and braces: a typo in the table cannot open a write).
 WRITE_TOOLS = frozenset({"log_client_event", "save_context", "log_supplier_event", "create_draft_order", "add_order_line", "confirm_order", "learn_term", "forget_term"})  # fmt: skip
 
 CLIENT_EVENT_TYPES = frozenset({"complaint", "quality_issue", "delivery_issue", "special_request", "price_negotiation", "menu_change", "compliment", "call", "note"})  # fmt: skip
-CLIENT_CONTEXT_KINDS = frozenset({"preference", "logistics"})  # what a declared client may add to its own sheet
-CLIENT_HIDDEN_KINDS = frozenset({"risk", "policy"})  # internal assessments and rules: not read back to a client
+SUPPLIER_EVENT_TYPES = frozenset({"quality_issue", "delivery_issue", "shortage", "return", "price_change", "invoice_issue", "call", "note"})  # fmt: skip
+CLIENT_CONTEXT_KINDS = frozenset({"preference", "logistics"})  # what a client may add to its own sheet
+SUPPLIER_CONTEXT_KINDS = frozenset({"preference", "logistics", "fact"})  # what a supplier may add to its own sheet
+CLIENT_HIDDEN_KINDS = frozenset({"risk", "policy"})  # internal assessments and rules: not read back to external roles
 PUBLIC_PRODUCT_FIELDS = ("id", "name", "unit", "price", "origin", "caliber", "available")
 CLIENT_HIDDEN_FIELDS = ("creditLimit", "outstanding", "overdue", "notes")  # of get_client: finances and the reps' private notes
 
 DENIED_UNKNOWN = "Je ne peux pas vous donner cette information ni faire cette opération sans identification."
 DENIED_OTHER_CLIENT = "Je ne peux parler que de votre compte, pas de celui d'un autre client."
+DENIED_OTHER_SUPPLIER = "Je ne peux consulter ou modifier que votre propre fiche fournisseur."
 DENIED_RESERVED = "Cette information est réservée à l'équipe interne."
 
 
 def rule(caller: Caller, tool: str) -> str:
     """The table entry for (role, tool). A tool missing from the table: refused to everyone but the internal roles."""
+    r_name = _norm_role(caller.role)
     entry = POLICY.get(tool)
     if entry is None:
         return ALL if caller.internal else NO
-    r = entry[ROLES.index(caller.role)]
-    return NO if tool in WRITE_TOOLS and caller.role == "unknown" else r
+    r = entry[ROLES.index(r_name)]
+    return NO if tool in WRITE_TOOLS and r_name == "unknown" else r
 
 
 def denied(caller: Caller) -> AccessDenied:
@@ -157,8 +230,42 @@ def authorize(caller: Caller, tool: str, args: dict[str, Any]) -> None:
         raise denied(caller)
     if r in (ALL, CATALOGUE):
         return
+
+    if caller.role == "supplier":
+        own_sup = caller.supplier_id
+        if not own_sup:
+            raise denied(caller)
+        match tool:
+            case "get_supplier_history":
+                if args.get("supplier_id") != own_sup:
+                    raise AccessDenied(DENIED_OTHER_SUPPLIER)
+            case "log_supplier_event":
+                if args.get("supplier_id") != own_sup:
+                    raise AccessDenied(DENIED_OTHER_SUPPLIER)
+                if args.get("type") not in SUPPLIER_EVENT_TYPES:
+                    raise AccessDenied("Ce type d'événement fournisseur n'est pas autorisé ici.")
+            case "get_context":
+                if args.get("entity_type") == "supplier":
+                    if args.get("id") != own_sup:
+                        raise AccessDenied(DENIED_OTHER_SUPPLIER)
+                elif args.get("entity_type") not in ("product", "category"):
+                    raise AccessDenied(DENIED_RESERVED)
+            case "search_context":
+                etype = args.get("entity_type")
+                if etype == "supplier":
+                    if args.get("entity_id") != own_sup:
+                        raise AccessDenied(DENIED_OTHER_SUPPLIER)
+                elif etype not in ("product", "category"):
+                    raise AccessDenied("Précisez entityType : supplier (le vôtre), product ou category.")
+            case "save_context":
+                if args.get("entity_type") != "supplier" or args.get("entity_id") != own_sup or args.get("kind") not in SUPPLIER_CONTEXT_KINDS:
+                    raise AccessDenied("Je ne peux mémoriser ici que des informations pratiques sur votre fiche fournisseur.")
+            case _:
+                raise denied(caller)
+        return
+
     own = caller.client_id
-    if not own:  # a client role always has one (Caller.declare); defensive
+    if not own:  # a client role always has one; defensive
         raise denied(caller)
 
     def mine(client_id: Any) -> None:
@@ -216,7 +323,12 @@ def redact(caller: Caller, tool: str, result: Any) -> Any:
         return result
     match tool:
         case "search" if isinstance(result, list):
-            return [r for r in result if r.get("type") == "product" or (caller.role == "client" and r.get("type") == "client" and r.get("id") == caller.client_id)]  # fmt: skip
+            return [
+                r for r in result
+                if r.get("type") == "product"
+                or (caller.role == "client" and r.get("type") == "client" and r.get("id") == caller.client_id)
+                or (caller.role == "supplier" and r.get("type") == "supplier" and r.get("id") == caller.supplier_id)
+            ]
         case "get_product_stock" if isinstance(result, dict):
             return {k: result[k] for k in PUBLIC_PRODUCT_FIELDS if k in result}
         case "get_client" if isinstance(result, dict):
@@ -228,7 +340,10 @@ def redact(caller: Caller, tool: str, result: Any) -> Any:
         case "resolve_mention" if isinstance(result, list):
             out = []
             for m in result:
-                keep = [c for c in m.get("candidates", []) if c.get("type") in ("product", "place") or c.get("id") == caller.client_id]
+                keep = [
+                    c for c in m.get("candidates", [])
+                    if c.get("type") in ("product", "place") or (caller.role == "client" and c.get("id") == caller.client_id)
+                ]
                 if keep or "candidates" not in m:
                     out.append({**m, **({"candidates": keep} if "candidates" in m else {})})
             return out

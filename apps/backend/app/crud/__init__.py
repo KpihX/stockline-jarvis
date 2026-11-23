@@ -26,6 +26,7 @@ tags = CRUDBase(JsonTable("tags", lambda d: f"{d['scope']}|{d['id']}"), "Groupe"
 price_rules = CRUDBase(JsonTable("price_rules"), "Règle de prix")
 context_entries = CRUDBase(JsonTable("context_entries"), "Fiche de contexte")
 events = CRUDBase(JsonTable("events"), "Événement")  # the activity log
+accounts = CRUDBase(JsonTable("accounts"), "Compte")  # user accounts (auth + RBAC; seeded separately from PACK)
 
 # Data pack file name (seed/<key>.json) → CRUD. Missing files load as [].
 PACK: dict[str, CRUDBase] = {

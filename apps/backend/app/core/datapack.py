@@ -50,9 +50,12 @@ def write_pack(pack: Doc) -> None:
 
 
 def reset_from_pack() -> str:
-    """Wipe the DB and reload the data pack. Returns the source."""
+    """Wipe the DB and reload the data pack (plus re-seed demo accounts deterministically). Returns the source."""
+    from app.services.auth import ensure_accounts_seeded
+
     pack, source = read_pack()
     write_pack(pack)
+    ensure_accounts_seeded(force_reset=True)
     return source
 
 

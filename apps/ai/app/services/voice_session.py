@@ -157,9 +157,21 @@ class VoiceConnection:
             await self.open()  # no "start" yet: open a fresh conversation
 
         match msg:
-            case StartMessage(session_id=session_id, actor_name=actor_name, role=role, client_id=client_id):
+            case StartMessage(session_id=session_id, token=token, actor_name=actor_name, role=role, client_id=client_id, supplier_id=supplier_id):
                 await self.interrupt()
-                await self.open(session_id, actor_name, Caller.declare(role, client_id, actor_name))
+                from app.auth import resolve_caller
+
+                ws_headers = getattr(self.ws, "headers", None)
+                ws_query = getattr(self.ws, "query_params", None)
+                caller = await resolve_caller(
+                    authorization=ws_headers.get("authorization") if ws_headers else None,
+                    token=token or (ws_query.get("token") if ws_query else None),
+                    role=role,
+                    client_id=client_id,
+                    supplier_id=supplier_id,
+                    actor_name=actor_name,
+                )
+                await self.open(session_id, caller.actor_name or actor_name, caller)
             case AudioStartMessage(mime=mime, hint=hint):
                 await self.interrupt()  # barge-in
                 self.recording = Utterance(get_stt_client(), mime, hint, on_partial=self.send_partial, client_id=self.conversation.client_id)
@@ -224,7 +236,8 @@ class VoiceConnection:
         await self.send(
             ReadyMessage(
                 session_id=conv.id, stt=get_stt_client().name, tts=get_tts_client().name, llm=f"{llm.provider}:{llm.model}",
-                role=conv.caller.role, client_id=conv.caller.client_id, actor_name=conv.caller.actor_name,
+                role=conv.caller.role, client_id=conv.caller.client_id, supplier_id=conv.caller.supplier_id,
+                actor_name=conv.caller.actor_name, verified=conv.caller.verified,
             )
         )
         if not self.warm_tasks:

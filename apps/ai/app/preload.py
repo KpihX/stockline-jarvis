@@ -69,9 +69,57 @@ def build_sheet(client: dict, context: dict | None, role: str) -> str:
     return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1] + "…"
 
 
+def build_supplier_sheet(supplier: dict, context: dict | None, pos: list[dict] | None = None) -> str:
+    """Compact sheet for a verified/declared supplier: only its own supplier record, POs and context."""
+    lines = [
+        "# Fiche fournisseur préchargée (ERP — cet interlocuteur est UNIQUEMENT ce fournisseur)",
+        f"- {supplier.get('name', '?')} ({supplier.get('id', '?')}) : catégorie {supplier.get('category', '?')}, ville {supplier.get('city', '?')}, statut {supplier.get('status', '?')}.",
+    ]
+    if supplier.get("paymentTermsDays"):
+        lines.append(f"- Conditions achat : paiement à {num(supplier['paymentTermsDays'])} jours.")
+    events = (supplier.get("recentEvents") or [])[:5]
+    if events:
+        lines.append("- Derniers événements fournisseur : " + " ; ".join(f"{e['at'][:10]} {e['type']} « {clip(e['title'], 80)} »" for e in events))
+    for po in (pos or [])[:4]:
+        lines.append(f"- Achat récent {po.get('number', po.get('id'))} : statut {po.get('status', '?')}, livraison {po.get('expectedDate', '?')}.")
+    for e in (context or {}).get("entries", []):
+        if e.get("kind") in ("preference", "logistics", "fact", "relationship"):
+            lines.append(f"- {e['title']} : {clip(e['body'], 200)}")
+    text = "\n".join(lines)
+    return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1] + "…"
+
+
 async def client_sheet(caller: Caller) -> str:
-    """The sheet of caller.client_id for this role ("" for unknown callers, a commercial without a client, or when the ERP does not answer)."""
-    if not ENABLED or not caller.client_id or caller.role == "unknown":
+    """The preloaded sheet for caller.client_id OR caller.supplier_id ("" for unknown / unscoped / no ERP)."""
+    if not ENABLED or caller.role == "unknown":
+        return ""
+    if caller.role == "supplier":
+        sid = caller.supplier_id
+        if not sid:
+            return ""
+        key = (sid, "supplier")
+        hit = _cache.get(key)
+        if hit and time.monotonic() - hit[0] < SHEET_TTL_S:
+            return hit[1]
+        erp = ErpClient("voice_agent", caller.erp_name)
+        try:
+            sup, context, pos = await asyncio.wait_for(
+                asyncio.gather(
+                    erp.get(f"/api/suppliers/{enc(sid)}"),
+                    erp.get("/api/context/for", {"entityType": "supplier", "id": sid}),
+                    erp.get("/api/purchase-orders", {"supplierId": sid, "limit": 4}),
+                ),
+                SHEET_TIMEOUT_S,
+            )
+        except (ErpError, TimeoutError, KeyError, ValueError) as e:
+            print(f"[preload] fiche fournisseur {sid} indisponible ({type(e).__name__}: {e})", flush=True)
+            return ""
+        po_items = pos if isinstance(pos, list) else pos.get("items", [])
+        text = build_supplier_sheet(sup, context, po_items)
+        _cache[key] = (time.monotonic(), text)
+        return text
+
+    if not caller.client_id:
         return ""
     key = (caller.client_id, "client" if caller.role == "client" else "internal")
     hit = _cache.get(key)

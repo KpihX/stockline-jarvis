@@ -9,11 +9,44 @@ from urllib.parse import unquote
 from fastapi import Depends, Header
 
 from app.core.activity import Ctx
-from app.core.errors import validation_error
+from app.core.db import Doc
+from app.core.errors import HttpError, validation_error
 from app.schemas.base import Input
 from app.schemas.views import ApiError
 
 ACTORS = {"user", "ai_chat", "voice_agent", "system"}
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.split(" ", 1)
+    return parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
+
+
+def get_optional_account(authorization: Annotated[str | None, Header()] = None) -> Doc | None:
+    from app.services.auth import verify_token
+
+    tok = _bearer_token(authorization)
+    return verify_token(tok) if tok else None
+
+
+def require_account(authorization: Annotated[str | None, Header()] = None) -> Doc:
+    acc = get_optional_account(authorization)
+    if not acc:
+        raise HttpError(401, "unauthorized", "Connexion requise.")
+    return acc
+
+
+def require_admin(account: Annotated[Doc, Depends(require_account)]) -> Doc:
+    if account.get("role") != "admin":
+        raise HttpError(403, "forbidden", "Accès réservé à l'administrateur unique.")
+    return account
+
+
+OptionalAccountDep = Annotated[Doc | None, Depends(get_optional_account)]
+RequireAccountDep = Annotated[Doc, Depends(require_account)]
+RequireAdminDep = Annotated[Doc, Depends(require_admin)]
 
 
 def get_ctx(

@@ -34,8 +34,11 @@ async def lifespan(_app: FastAPI):
     print(f"[ai] http://localhost:{settings.port}  (WS /voice, docs /docs)")
     print(f"[ai] llm={llm.provider}:{llm.model}  stt={stt.name}  tts={tts.name}  erp={settings.erp_api_url}", flush=True)
     yield
-    await http_client().aclose()
-    await close_erp_http()
+    from contextlib import suppress
+
+    with suppress(RuntimeError):
+        await http_client().aclose()
+        await close_erp_http()
 
 
 app = FastAPI(title="Voice ERP kit — AI service", version="0.1.0", lifespan=lifespan, separate_input_output_schemas=False)

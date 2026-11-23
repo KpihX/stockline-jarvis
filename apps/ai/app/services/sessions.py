@@ -66,11 +66,13 @@ def auto_title(text: str, caller: Caller | None = None) -> str:
 
 
 def visible(summary: dict, caller: Caller) -> bool:
-    """Same scope as policy.py: internal sees all, a client only its own, an unidentified caller only unidentified sessions."""
+    """Same scope as policy.py: internal sees all, client/supplier only their own, unknown only unknown sessions."""
     if caller.internal:
         return True
     if caller.role == "client":
         return summary.get("role") == "client" and summary.get("clientId") == caller.client_id
+    if caller.role == "supplier":
+        return summary.get("role") == "supplier" and summary.get("supplierId") == caller.supplier_id
     return summary.get("role") in (None, "unknown")
 
 
@@ -118,7 +120,14 @@ def _caller_of(meta: dict) -> Caller:
     raw = meta.get("caller")
     if isinstance(raw, dict) and isinstance(raw.get("__dataclass__"), dict):
         d = raw["__dataclass__"]
-        return Caller.declare(d.get("role"), d.get("client_id"), d.get("actor_name"))
+        if d.get("verified"):
+            return Caller.verified_account({
+                "id": d.get("account_id"),
+                "role": d.get("role"),
+                "entityId": d.get("client_id") or d.get("supplier_id"),
+                "displayName": d.get("actor_name"),
+            })
+        return Caller.declare(d.get("role"), d.get("client_id"), d.get("actor_name"), supplier_id=d.get("supplier_id"))
     return UNKNOWN
 
 
@@ -145,6 +154,7 @@ def _summary(sid: str, updated: float, meta: dict, history: list[ChatMessage]) -
         "surface": meta.get("surface"),
         "turns": int(meta.get("turns") or sum(1 for m in history if m.role == "user")),
         "clientId": caller.client_id,
+        "supplierId": caller.supplier_id,
         "role": caller.role,
         "actorName": caller.actor_name,
         "commandIds": commands,
@@ -289,18 +299,20 @@ def recall(query: str, caller: Caller) -> list[dict]:
 
 
 async def chat_turn(conv: Conversation, *, messages: list[ChatMessage], caller: Caller,
-                    actor_name: str | None = None, mode: str = "chat") -> AsyncIterator[ChatStreamEvent]:
+                    actor_name: str | None = None, mode: str = "chat", current_path: str | None = None) -> AsyncIterator[ChatStreamEvent]:
     """Run one chat turn on the server-owned history and commit it (same store, same Conversation as /voice)."""
     users = [m for m in messages if m.role == "user"]
     content = users[-1].content.strip() if users else ""
     if not content:
         yield ErrorEvent(message="Message vide.")
         return
+    if current_path:
+        content = f"{content}\n\n[Écran ouvert : {current_path}]"
 
     base = conv.history
     working = [*base, ChatMessage(role="user", content=content)]
     if not conv.title or conv.title == DEFAULT_TITLE:
-        conv.title = auto_title(content, caller)
+        conv.title = auto_title(users[-1].content, caller)
     conv.turns = (conv.turns or 0) + 1
     llm = get_llm_client()
     if conv.session_block is None:

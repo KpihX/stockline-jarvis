@@ -45,23 +45,36 @@ async def command(request: Request, speak: str | None = None):
         if not audio:
             return JSONResponse(ErrorResponse.of("bad_request", "empty audio body"), status_code=400)
 
+    caller = await caller_of_request(
+        request.headers,
+        typed.role if typed else None,
+        typed.client_id if typed else None,
+        typed.actor_name if typed else None,
+    )
     return sse_response(
         run_command(
             text=typed.text if typed else None,
             audio=audio,
             mime=content_type or "audio/webm",
             hint=header_text(request.headers.get("x-mock-text") or request.headers.get("x-stt-hint")),
-            actor_name=(typed and typed.actor_name) or header_text(request.headers.get("x-actor-name")) or "Commande vocale",
-            caller=caller_of_request(request.headers, typed.role if typed else None, typed.client_id if typed else None, typed.actor_name if typed else None),
+            actor_name=caller.actor_name or (typed and typed.actor_name) or header_text(request.headers.get("x-actor-name")) or "Commande vocale",
+            caller=caller,
             speak=speak in ("1", "true"),
         )
     )
 
 
-def caller_of_request(headers, role: str | None = None, client_id: str | None = None, actor_name: str | None = None) -> Caller:
-    """The DECLARED identity of a request (not authenticated: the demo has no caller-ID): body fields, else the x-caller-role /
-    x-caller-client-id / x-actor-name headers; default unknown. The server enforces what the role may do (app/policy.py)."""
-    return Caller.declare(role or headers.get("x-caller-role"), client_id or headers.get("x-caller-client-id"), actor_name or header_text(headers.get("x-actor-name")))
+async def caller_of_request(headers, role: str | None = None, client_id: str | None = None, actor_name: str | None = None) -> Caller:
+    """Resolve verified Bearer token first, else declared fallback when ALLOW_DECLARED_IDENTITY=1."""
+    from app.auth import resolve_caller
+
+    return await resolve_caller(
+        authorization=headers.get("authorization"),
+        role=role or headers.get("x-caller-role"),
+        client_id=client_id or headers.get("x-caller-client-id"),
+        supplier_id=headers.get("x-caller-supplier-id"),
+        actor_name=actor_name or header_text(headers.get("x-actor-name")),
+    )
 
 
 def header_text(value: str | None) -> str | None:

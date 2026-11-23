@@ -35,10 +35,15 @@ def test_declare_normalises_and_defaults_to_the_safest_role():
     assert Caller.declare() == UNKNOWN
     assert Caller.declare("client", None, "X").role == "unknown"  # a client without an id is nobody
     assert Caller.declare("client", "not-an-id").role == "unknown"
-    assert Caller.declare("admin", "cli_0001").role == "unknown"  # unknown role: never a guess
+    assert Caller.declare("root", "cli_0001").role == "unknown"  # unknown role: never a guess
+    assert Caller.declare("supplier", None).role == "unknown"  # a supplier without a sup_ id is nobody
+    assert Caller.declare("supplier", " sup_0007 ").supplier_id == "sup_0007"
+    assert Caller.declare("admin", "cli_0001").role == "admin"
+    assert Caller.declare("direction", "cli_0001").role == "admin"  # legacy alias
     assert Caller.declare("unknown", "cli_0001").client_id is None  # an unidentified caller carries no client
     assert Caller.declare("client", " cli_0082 ").client_id == "cli_0082"
-    assert Caller.declare("sales", "cli_0082").client_id == "cli_0082"  # a commercial may work on a client
+    assert Caller.declare("sales", "cli_0082").role == "manager"  # legacy alias -> manager
+    assert Caller.declare("sales", "cli_0082").client_id == "cli_0082"
     assert Caller.declare("sales", "../x").client_id is None
     assert Caller.declare("sales", None, "a\nb\x00c" + "x" * 200).actor_name == "a b c" + "x" * 75
 
@@ -47,7 +52,9 @@ def test_erp_name_and_provenance_say_the_identity_is_declared():
     assert CLIENT.erp_name == "Le Refuge Payet · client déclaré"
     assert UNKNOWN.erp_name == "Non identifié"
     assert CLIENT.provenance == "voice_agent:declared:client"
-    assert SALES.provenance == "voice_agent:declared:sales"
+    assert SALES.provenance == "voice_agent:declared:manager"
+    sup = Caller.verified_account({"id": "acc_1", "role": "supplier", "entityId": "sup_0007", "displayName": "Chambaran"})
+    assert sup.verified is True and sup.provenance == "voice_agent:verified:supplier" and "vérifié" in sup.erp_name
 
 
 # ── the table: every role x every tool ──
@@ -86,9 +93,24 @@ def test_a_tool_missing_from_the_table_is_refused_to_non_internal_roles_only():
 
 
 def test_a_typo_in_the_table_cannot_open_a_write_to_unknown(monkeypatch):
-    monkeypatch.setitem(policy.POLICY, "create_draft_order", ("all", "own", "all", "all"))
+    monkeypatch.setitem(policy.POLICY, "create_draft_order", ("all", "own", "no", "all", "all"))
     with pytest.raises(AccessDenied):
         authorize(UNKNOWN, "create_draft_order", {"client_id": "cli_0082"})
+
+
+def test_supplier_role_only_reaches_own_supplier_and_catalogue():
+    sup = Caller.declare("supplier", "sup_0007", "Chambaran")
+    authorize(sup, "get_supplier_history", {"supplier_id": "sup_0007"})
+    authorize(sup, "log_supplier_event", {"supplier_id": "sup_0007", "type": "note", "title": "Retard"})
+    for bad_tool, args in [
+        ("get_price", {"client_id": "cli_0082", "product_id": "prd_1"}),
+        ("get_client", {"client_id": "cli_0082"}),
+        ("create_draft_order", {"client_id": "cli_0082"}),
+        ("get_supplier_history", {"supplier_id": "sup_0001"}),
+        ("log_supplier_event", {"supplier_id": "sup_0001", "type": "note", "title": "x"}),
+    ]:
+        with pytest.raises(AccessDenied):
+            authorize(sup, bad_tool, args)
 
 
 @pytest.mark.parametrize(
@@ -478,7 +500,7 @@ async def test_client_event_is_recorded_as_an_unverified_low_severity_claim():
 async def test_sales_event_is_recorded_as_is_with_its_provenance():
     ev, seen = await run_tool(SALES, "log_client_event", {"clientId": "cli_0082", "type": "complaint", "title": "Colis abîmé", "severity": "high"})
     body = json.loads(writes(seen)[0].content)
-    assert ev.ok and body["title"] == "Colis abîmé" and body["severity"] == "high" and body["tags"] == ["voice_agent:declared:sales"]
+    assert ev.ok and body["title"] == "Colis abîmé" and body["severity"] == "high" and body["tags"] == ["voice_agent:declared:manager"]
 
 
 async def test_client_save_context_is_preference_or_logistics_flagged_unverified_and_cannot_forge_a_vocab_row():
@@ -508,7 +530,7 @@ def test_start_and_ready_messages_carry_the_declared_identity_in_camel_case():
     assert ready["role"] == "client" and ready["clientId"] == "cli_0082"
     with pytest.raises(Exception):
         StartMessage.model_validate({"type": "start", "role": "root"})
-    assert set(ROLES) == {"unknown", "client", "sales", "direction"}
+    assert set(ROLES) == {"unknown", "client", "supplier", "manager", "admin"}
 
 
 def test_voice_session_applies_the_identity_and_wipes_the_history_when_it_changes():
@@ -572,12 +594,12 @@ async def test_warm_up_primes_the_same_prompt_as_a_real_turn(monkeypatch):
     assert seen[0].system == "SHARED public" and seen[0].system_suffix == "FROZEN BLOCK"
 
 
-def test_http_identity_comes_from_the_body_then_the_headers_and_defaults_to_unknown():
+async def test_http_identity_comes_from_the_body_then_the_headers_and_defaults_to_unknown():
     from app.routers.command import caller_of_request
 
-    assert caller_of_request({}) == UNKNOWN
+    assert await caller_of_request({}) == UNKNOWN
     h = {"x-caller-role": "client", "x-caller-client-id": "cli_0082", "x-actor-name": "Herv%C3%A9"}
-    assert caller_of_request(h) == Caller("client", "cli_0082", "Hervé")
-    assert caller_of_request(h, role="sales", client_id=None, actor_name="Thibault").role == "sales"  # the body wins
-    assert caller_of_request({"x-caller-role": "client"}).role == "unknown"  # a client without an id is nobody
-    assert caller_of_request({"x-caller-role": "root"}).role == "unknown"
+    assert await caller_of_request(h) == Caller("client", "cli_0082", "Hervé")
+    assert (await caller_of_request(h, role="sales", client_id=None, actor_name="Thibault")).role == "manager"  # the body wins
+    assert (await caller_of_request({"x-caller-role": "client"})).role == "unknown"  # a client without an id is nobody
+    assert (await caller_of_request({"x-caller-role": "root"})).role == "unknown"
