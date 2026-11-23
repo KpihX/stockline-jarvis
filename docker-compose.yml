@@ -29,16 +29,21 @@ services:
 
   ai:
     <<: *common
-    build: { context: ., dockerfile: docker/python.Dockerfile, args: { APP: ai } }
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+      args: { APP: ai, UV_SYNC_ARGS: "${AI_UV_SYNC_ARGS:-}", APT_PACKAGES: "${AI_APT_PACKAGES:-}" }  # optional extras (NVIDIA STT)
     image: voice-erp-kit/ai:dev
     command: uvicorn app.main:app --host 0.0.0.0 --port 4100 --reload --reload-dir app --timeout-graceful-shutdown 2
     environment:
       AI_PORT: "4100"
       DATA_DIR: /data
       ERP_API_URL: http://backend:4000
+      AI_STATE_DIR: /state  # the AI service's own durable state (session memory); survives restart/recreate
     volumes:
       - ./apps/ai/app:/app/apps/ai/app
       - ${DATA_DIR:-../hackathon-data}:/data:ro
+      - ai-state:/state
     ports: ["${AI_PORT:-4100}:4100"]
     depends_on:
       backend: { condition: service_healthy }
@@ -70,3 +75,4 @@ services:
 
 volumes:
   erp-db:
+  ai-state:

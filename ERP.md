@@ -235,6 +235,29 @@ remplacé). La quantité qui compte (stock, total, facture) = `preparedQty` si c
 | `insufficient_stock` | disponible (sans compter la réservation de cette commande) < quantité demandée du produit |
 | `expiring_soon` | le premier lot FEFO du produit expire au plus tard le lendemain de la livraison |
 | `price_below_cost` | prix de la ligne < coût de référence du produit |
+| `season_closed` | la date de livraison tombe hors de la saison d'ouverture du client (voir ci-dessous) |
+| `unusual_quantity` | quantité d'un produit (lignes du même produit additionnées) très au-dessus de ce que ce client commande d'habitude (voir ci-dessous) |
+
+**Alertes de plausibilité** (`services/plausibility.py`, toutes les valeurs dans le bloc « Thresholds » en tête du
+fichier). Elles se recalculent à chaque lecture, donc après chaque changement de date ou de ligne et à la
+confirmation ; elles ne bloquent jamais. Messages en français, sans identifiant, avec les chiffres du motif.
+
+- **`season_closed`, source de la saison.** 1) un texte explicite du client (notes, `preferences` ou fiche de
+  contexte `client`) du type « ouvert de mi-décembre à mi-avril » ou « Fermé en mai-juin et de septembre à
+  mi-décembre » ; il l'emporte, et le message ajoute les années où le client a pourtant commandé à cette période
+  quand l'historique le contredit ; 2) sinon l'historique : aucune commande livrée autour du même jour du calendrier
+  (± `max(7 j, 2,5 × l'écart p90 entre commandes)`, plafonné à 21 j) dans au moins 2 années observées ; pas
+  d'alerte si l'historique est trop court (< 12 commandes). Le 15 d'un « mi-mois » n'est jamais signalé.
+- **`unusual_quantity`.** Référence = commandes livrées ou facturées du client pour ce produit (jamais les
+  brouillons). Alerte si quantité > max(2,5 × p90 de ses quantités, plancher par unité : kg et L 25, pièce 30, colis
+  10) ; avec moins de 5 commandes la référence est le maximum. Produit jamais commandé par ce client : message
+  distinct, comparé à 1,5 × p95 de ce que tous les clients prennent du produit (≥ 20 lignes).
+- Mesure hors ligne sur l'historique du seed : `cd apps/backend && uv run python tests/measure_plausibility.py`
+  (tests : `uv run pytest -q`). Résultat : 3 commandes passées sur 24 141 (0,01 %) déclencheraient `season_closed`
+  par l'historique, 2 lignes sur 166 273 (0,001 %) `unusual_quantity`. Limite connue : les notes disent
+  « mi-décembre → mi-avril » alors que les commandes du seed courent du 1er décembre au 30 avril ; la règle du texte
+  explicite signale donc ces deux quinzaines (373 des 2 349 commandes passées des 18 clients concernés), et le
+  message l'indique (« il a pourtant commandé à cette période en 2023, 2024 et 2025 »).
 
 ### 3.2 Commandes d'achat et réceptions
 

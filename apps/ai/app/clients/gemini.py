@@ -31,7 +31,7 @@ class GeminiLLM(LLMClient):
         self.model, self.api_key, self.base_url, self.http = model, api_key, base_url.rstrip("/"), http
 
     def build_body(self, req: LLMRequest) -> dict:
-        body: dict = {"systemInstruction": {"parts": [{"text": req.system}]}, "contents": to_gemini_contents(req.messages)}
+        body: dict = {"systemInstruction": {"parts": [{"text": req.full_system}]}, "contents": to_gemini_contents(req.messages)}
         if req.tools:
             body["tools"] = [
                 {"functionDeclarations": [{"name": t.name, "description": t.description, "parameters": t.parameters} for t in req.tools]}

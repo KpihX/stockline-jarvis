@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from "react";
 import type { ChatMessage, ChatStreamEvent } from "@kit/shared";
 import { AiUnavailableError, streamChat, TurnRecorder } from "./ai-client";
+import { caller, callerWire } from "./caller";
 import type { ToolRun } from "./tools";
 
 export type Part = { kind: "text"; text: string } | { kind: "tool"; tool: ToolRun };
@@ -83,7 +84,7 @@ export const chat = {
     const ctrl = controller;
     const gen = generation;
     try {
-      await streamChat({ messages: [...history, userMsg], mode: "chat" }, (e) => {
+      await streamChat({ messages: [...history, userMsg], mode: "chat", ...callerWire(caller.get()) }, (e) => {
         recorder.push(e);
         applyEvent(assistantId, e);
       }, ctrl.signal);
@@ -115,6 +116,13 @@ export const chat = {
     set({ items: [], busy: false, unavailable: false });
   },
 };
+
+// Another identity = another conversation: what was said and fetched for the previous one must not carry over.
+let lastIdentity = JSON.stringify(caller.get());
+caller.subscribe(() => {
+  const now = JSON.stringify(caller.get());
+  if (now !== lastIdentity) { lastIdentity = now; chat.reset(); }
+});
 
 export function useChat(): ChatState {
   return useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => state);

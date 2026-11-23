@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import Field
 
 from .base import WireModel
-from .chat import TurnCost, TurnTimings
+from .chat import CallerRole, TurnCost, TurnTimings
 
 # ── Client → server ──
 
@@ -20,7 +20,9 @@ class StartMessage(WireModel):
 
     type: Literal["start"] = "start"
     session_id: str | None = None
-    actor_name: str | None = None
+    actor_name: str | None = None  # declared name of the caller: author of the ERP writes of the session
+    role: CallerRole | None = None  # DECLARED role (default unknown; the demo has no caller-ID). The server enforces it (app/policy.py)
+    client_id: str | None = None  # cli_… the caller is bound to (role client), or the client a commercial works on. Changing the identity of a sessionId wipes its history
 
 
 class AudioStartMessage(WireModel):
@@ -69,6 +71,9 @@ class ReadyMessage(WireModel):
     stt: str
     tts: str
     llm: str
+    role: CallerRole = "unknown"  # the identity the server will ENFORCE (a client without a valid clientId is downgraded to unknown)
+    client_id: str | None = None
+    actor_name: str | None = None
 
 
 class TranscriptMessage(WireModel):
@@ -89,7 +94,9 @@ class AgentTextMessage(WireModel):
 
 
 class AgentToolMessage(WireModel):
-    """Sent twice per tool: once with `args` when called, once with `ok`/`ms` when done."""
+    """Sent up to three times per tool: (1) `name` only, when the model STARTS the call (Anthropic; the arguments are still streaming),
+    (2) with `args` when the call is complete, (3) with `ok`/`ms` when it is done. Providers that cannot tell early skip (1);
+    a client pairs (2) with the open (1) of the same name."""
 
     type: Literal["agent_tool"] = "agent_tool"
     name: str

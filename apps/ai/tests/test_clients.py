@@ -7,7 +7,7 @@ import json
 
 import httpx
 
-from app.clients import LLMRequest, LLMText, LLMToolCall, LLMUsage
+from app.clients import LLMRequest, LLMText, LLMToolCall, LLMToolStart, LLMUsage
 from app.clients.anthropic import AnthropicLLM
 from app.clients.deepgram import DeepgramSTT
 from app.clients.elevenlabs import ElevenLabsTTS
@@ -140,7 +140,14 @@ async def test_anthropic_stream_thinking_tools_and_replay():
     http, seen = recorder(lambda _: sse(*events))
     llm = AnthropicLLM("claude-test", "key", "https://anthropic.test", effort="low", http=http)
     out = await collect(llm, LLMRequest(system="SYS", messages=[ChatMessage(role="user", content="bar ?")], tools=TOOLS))
-    assert out == [LLMText("Je regarde."), LLMUsage(30, 40), LLMToolCall(ToolCall(id="toolu_1", name="search", arguments={"query": "bar"}))]
+    # Order changed on purpose (latency work): the call is announced when its block STARTS (name known, LLMToolStart) and handed over when
+    # the block STOPS (complete arguments), no longer after the usage at the end of the message.
+    assert out == [
+        LLMText("Je regarde."),
+        LLMToolStart("search", "toolu_1"),
+        LLMToolCall(ToolCall(id="toolu_1", name="search", arguments={"query": "bar"})),
+        LLMUsage(30, 40),
+    ]
 
     first = json.loads(seen[0].content)
     assert str(seen[0].url) == "https://anthropic.test/v1/messages"

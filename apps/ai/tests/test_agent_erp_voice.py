@@ -8,6 +8,7 @@ import httpx
 
 from app.agent.loop import execute_tool
 from app.clients.mock_speech import MockSTT, MockTTS
+from app.policy import Caller
 from app.schemas import ToolCall
 from app.services import voice_session
 from app.tools import TOOLS
@@ -53,7 +54,7 @@ async def test_non_json_tool_result_becomes_an_error():
 
     try:
         erp, _ = recording_erp()
-        ev = await execute_tool(ToolCall(id="c1", name="demo_datetime", arguments={}), [demo_datetime], ToolContext(erp=erp, actor="ai_chat"))
+        ev = await execute_tool(ToolCall(id="c1", name="demo_datetime", arguments={}), [demo_datetime], ToolContext(erp=erp, actor="ai_chat", caller=Caller("direction")))
         assert ev.ok is False
         assert "non sérialisable" in ev.result["error"]
     finally:

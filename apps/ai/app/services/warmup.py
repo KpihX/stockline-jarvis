@@ -18,9 +18,10 @@ from collections.abc import Callable
 from contextlib import aclosing
 from dataclasses import dataclass
 
-from app.agent.prompts import build_system_prompt
+from app.agent.prompts import build_session_block, build_system_prompt
 from app.clients import LLMClient, LLMRequest, LLMUsage, TTSClient
 from app.config import settings
+from app.policy import UNKNOWN, Caller
 from app.schemas import ChatMessage
 from app.tools import Tool
 
@@ -102,7 +103,10 @@ async def warm_tts(tts: TTSClient) -> None:
     print(f"[warm-up] tts connection open ({int((time.perf_counter() - t) * 1000)} ms)", flush=True)
 
 
-async def prime_llm(llm: LLMClient, tools: list[Tool], actor_name: str | None, *, force: bool = False) -> None:
+async def prime_llm(
+    llm: LLMClient, tools: list[Tool], actor_name: str | None, *, force: bool = False,
+    caller: Caller | None = None, session_block: str | None = None,  # the session's identity and frozen prompt tail (None: built from `caller`)
+) -> None:
     """One request that is byte-identical to a real turn's prefix (system prompt + tools) with max_tokens=1: writes (or
     refreshes) the prompt cache and opens the connection. Skipped when the cache was touched less than KEEPALIVE_S ago."""
     global _llm_warm_at
@@ -113,10 +117,11 @@ async def prime_llm(llm: LLMClient, tools: list[Tool], actor_name: str | None, *
     usage = None
     try:
         request = LLMRequest(
-            system=await build_system_prompt("voice", actor_name),
+            system=await build_system_prompt("voice", actor_name, caller),
             messages=[ChatMessage(role="user", content="Bonjour")],
             tools=[t.info for t in tools],
             max_tokens=1,
+            system_suffix=session_block if session_block is not None else await build_session_block(caller or UNKNOWN),
         )
         async with aclosing(llm.stream(request)) as events:  # type: ignore[type-var]
             async for ev in events:
@@ -138,13 +143,17 @@ def touch() -> None:
     _llm_warm_at = _activity_at = time.monotonic()
 
 
-async def keep_warm(llm: LLMClient, tools: Callable[[], list[Tool]], actor_name: Callable[[], str | None]) -> None:
+async def keep_warm(
+    llm: LLMClient, tools: Callable[[], list[Tool]], actor_name: Callable[[], str | None],
+    identity: Callable[[], tuple[Caller, str | None]] | None = None,  # (declared identity, frozen prompt tail) of the session, read at each ping
+) -> None:
     """While a session is open and the caller active, keep the prompt cache alive. Cancelled when the session closes."""
     while True:
         await asyncio.sleep(KEEPALIVE_POLL_S)
         now = time.monotonic()
         if now - _llm_warm_at >= KEEPALIVE_S and now - _activity_at < KEEPALIVE_ACTIVE_WINDOW_S:
-            await safely("llm keep-alive", prime_llm(llm, tools(), actor_name()))
+            who = {} if identity is None else dict(zip(("caller", "session_block"), identity()))
+            await safely("llm keep-alive", prime_llm(llm, tools(), actor_name(), **who))
 
 
 async def safely(what: str, coro) -> None:
@@ -156,12 +165,15 @@ async def safely(what: str, coro) -> None:
         print(f"[warm-up] {what} failed: {type(e).__name__}: {e}", flush=True)
 
 
-async def warm_up(llm: LLMClient, tts: TTSClient, tools: list[Tool], actor_name: str | None) -> None:
+async def warm_up(
+    llm: LLMClient, tts: TTSClient, tools: list[Tool], actor_name: str | None,
+    *, caller: Caller | None = None, session_block: str | None = None,
+) -> None:
     """At session open: fillers + TTS connection + LLM cache, in parallel. Counts as activity (the caller just arrived)."""
     global _activity_at
     _activity_at = time.monotonic()
     await asyncio.gather(
         safely("fillers", load_fillers(tts)),
         safely("tts", warm_tts(tts)),
-        safely("llm", prime_llm(llm, tools, actor_name)),
+        safely("llm", prime_llm(llm, tools, actor_name, caller=caller, session_block=session_block)),
     )

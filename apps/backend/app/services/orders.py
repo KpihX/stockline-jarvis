@@ -20,7 +20,7 @@ from app.core.db import Doc, per_data_version, transactional
 from app.core.listing import Key, ListQuery, apply_sort, count_by, respond, split_set, sum_of
 from app.core.errors import bad_request, conflict
 from app.core.utils import add_days, collate_key, de, fmt_eur, fr_day, fr_num, js_str, normalize, round2, round3, total
-from app.services import clients, invoices, pricing, routing
+from app.services import clients, invoices, plausibility, pricing, routing
 from app.services.stock import consume_fefo, fefo_lots, line_qty, stock_levels
 
 STATUS_FR = {
@@ -145,6 +145,7 @@ def order_warnings(order: Doc) -> list[Doc]:
             })  # fmt: skip
     if not routing.zone_served_on(client["zone"], order["deliveryDate"]):
         warnings.append({"code": "no_route", "message": f"Aucune tournée ne dessert la zone « {client['zone']} » {fr_day(order['deliveryDate'])}"})
+    warnings.extend(plausibility.plausibility_warnings(order, client))  # season_closed, unusual_quantity
 
     levels = stock_levels(order["id"])
     demand: dict[str, float] = {}

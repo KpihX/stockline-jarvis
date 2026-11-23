@@ -178,6 +178,8 @@ export interface Warning {
     | "expiring_soon"
     | "no_route"
     | "price_below_cost"
+    | "season_closed" // delivery date outside the client's opening season
+    | "unusual_quantity" // a line quantity far above this client's usual
     // purchase orders
     | "below_min_order"
     | "price_above_usual"

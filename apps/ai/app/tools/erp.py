@@ -13,7 +13,7 @@ import httpx
 
 from app.config import settings
 
-Actor = Literal["ai_chat", "voice_agent"]
+Actor = Literal["ai_chat", "voice_agent", "user"]  # "user": a human acting through this service's admin routes (routers/vocab.py)
 
 
 class ErpError(Exception):

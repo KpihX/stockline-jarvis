@@ -54,7 +54,9 @@ All three services read the single `.env` at the repo root (your team zip ships 
 | `ERP_API_URL` | where the AI service reaches the ERP in local mode (`http://localhost:4000`; Docker sets it itself) |
 | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | `openai` · `anthropic` · `gemini` · `openai-compatible` (Groq, Mistral, OpenRouter, Ollama… via `LLM_BASE_URL`) · `mock` |
 | `LLM_EFFORT` | Anthropic only: `low` (default, fastest) · `medium` · `high` |
-| `STT_PROVIDER`, `STT_API_KEY`, `STT_MODEL`, `STT_LANGUAGE` | `soniox` · `deepgram` · `gradium` · `openai` · `mock` |
+| `STT_PROVIDER`, `STT_API_KEY`, `STT_MODEL`, `STT_LANGUAGE` | `soniox` · `deepgram` · `gradium` · `openai` · `nvidia` (optional, see below) · `mock` |
+| `NVIDIA_API_KEY`, `NVIDIA_STT_FUNCTION_ID`, `NVIDIA_STT_URI`, `NVIDIA_STT_BOOST`, `NVIDIA_STT_STREAMING` | only for `STT_PROVIDER=nvidia`, all optional but the key |
+| `AI_UV_SYNC_ARGS`, `AI_APT_PACKAGES` | Docker build only: extras for the `ai` image (`--extra nvidia`, `ffmpeg`); empty = stock image |
 | `TTS_PROVIDER`, `TTS_API_KEY`, `TTS_MODEL`, `TTS_VOICE`, `TTS_LANGUAGE` | `elevenlabs` · `gradium` · `openai` · `mock` (the browser speaks the text) |
 | `JEV_API_KEY`, `JEV_BASE_URL`, `JEV_MODEL` | optional Jev decision model (TypeSafe AI, `jev-latest`), used **next to** the LLM, not instead of it: choice / score / yes-no with probabilities. The default agent does not call it — see [apps/ai/README.md](apps/ai/README.md#jev-decision-model) |
 | `AGENT_MAX_STEPS` | max model ↔ tool round-trips per turn (8) |
@@ -64,6 +66,32 @@ An empty `*_MODEL` / `TTS_VOICE` picks the provider's default; the defaults are 
 [apps/ai/README.md](apps/ai/README.md#environment). Your team `.env` lists every key your team received as comments at
 the bottom: to switch provider, set `*_PROVIDER` and paste the matching key into `*_API_KEY`
 ([SETUP.md](SETUP.md#changer-de-modèle-ou-de-voix)).
+
+### Switching the STT provider
+
+One variable, `STT_PROVIDER`, then `make restart`. Everything else (live partials, vocabulary hint, fallbacks) is the
+same code path: an adapter only implements `STTClient` (`clients/base.py`).
+
+| `STT_PROVIDER` | Needs | Default model | Live (partials) | Vocabulary hint |
+|---|---|---|---|---|
+| `mock` | nothing | — | yes (simulated) | returned as the transcript |
+| `soniox` | `STT_API_KEY` | `stt-rt-v6` | yes (WebSocket) | `context.terms` |
+| `deepgram` | `STT_API_KEY` | `nova-3` | yes (WebSocket) | `keyterm` |
+| `gradium` | `STT_API_KEY` | `default` | no (REST) | keyword boosting |
+| `openai` | `STT_API_KEY` | `gpt-4o-mini-transcribe` | no (REST) | prompt |
+| `nvidia` | `NVIDIA_API_KEY` (or `STT_API_KEY`) + the optional extra | `parakeet` (`whisper` = offline only) | Parakeet yes (Riva gRPC), Whisper no | Parakeet: Riva word boosting; Whisper: none |
+
+**NVIDIA STT (optional; the jury repo runs without it).** `clients/nvidia.py` talks Riva gRPC to NVCF
+(`grpc.nvcf.nvidia.com:443`), `nvidia-riva-client` is imported on first use. Without the package or the key, only
+`STT_PROVIDER=nvidia` complains (clear message); every other provider is untouched.
+- Local (`make dev`): `cd apps/ai && uv sync --extra nvidia`, and `ffmpeg` on the machine (it decodes the browser's
+  WebM/Opus; WAV 16 kHz mono needs none).
+- Docker: set `AI_UV_SYNC_ARGS=--extra nvidia` and `AI_APT_PACKAGES=ffmpeg` in `.env`, then `make rebuild`.
+- `STT_MODEL`: `parakeet` (streaming + word boosting) or `whisper` (one blocking call on the whole recording, run in a
+  thread, no boosting). Any other Riva function: `NVIDIA_STT_FUNCTION_ID`. `STT_LANGUAGE=fr` becomes `fr-FR` for Parakeet
+  (`fr` alone is refused by the function; `multi` also works).
+- `NVIDIA_STT_BOOST`: one boost score for all vocabulary terms (RNNT range 0.5–2.0, default 1.0, `0` = off).
+  `NVIDIA_STT_STREAMING=auto|on|off` forces live recognition on or off.
 
 ---
 

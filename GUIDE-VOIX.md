@@ -227,6 +227,13 @@ clients passent en premier. Un nom mal entendu, c'est un mauvais client ou un ma
 - Vocabulaire plus fin : noms des contacts, panier habituel du client une fois identifié, termes de votre métier.
 - Deepgram termine encore par `CloseStream` (attend la fermeture) : `{"type": "Finalize"}` serait plus rapide.
 
+**Fait aussi : un vocabulaire évolutif, par client** (`apps/ai/app/lexicon/`, justification et chiffres dans `DECISIONS.md` §5). Trois couches :
+
+1. *Biais STT, client d'abord.* Dès que l'agent a identifié l'appelant, les `terms` Soniox de **chaque énoncé** commencent par les siens (son nom, ses produits habituels, ses contacts, ses lieux de livraison), puis le catalogue.
+2. *Résolveur déterministe après le STT* : « Paillet » → *Le Refuge Payet*, « à Promont » → *Apremont*, par phonétique française, en 2 ms. Il propose (score + marge), il ne réécrit jamais ; le bloc `[Lexique …]` est mis **à la fin** du message de l'appelant pour garder le cache de prompt. Sur nos 20 phrases : Soniox sans vocabulaire 54 → 61 / 62 entités, Whisper 52 → 62, Parakeet 38 → 60, 0 proposition fausse.
+3. *Apprentissage depuis l'appel* : si l'agent doute, il répète le nom (« Le Refuge Payet, c'est bien ça ? ») ou demande d'épeler ; **seulement après un oui, une épellation ou une commande confirmée**, `learn_term` écrit la correspondance dans la table de contexte de l'ERP.
+   Voir et supprimer : `GET /ai/vocab`, `DELETE /ai/vocab/{id}`.
+
 <a id="vad"></a>
 ### 4.2 Endpointing / VAD au lieu du push-to-talk
 
@@ -438,6 +445,7 @@ l'appelant (4.6) et dites au modèle d'adapter registre et tutoiement.
 | Problème | Ce qu'on fait | Où |
 |---|---|---|
 | Noms mal entendus (« loup » / « bar », noms de clients) | l'**indice STT** contient déjà les noms des clients, produits et alias de l'ERP (`context.terms` Soniox, `keyterm` Deepgram) ; ajoutez vos termes | `services/vocabulary.py`, ou `hint` de `audio_start` |
+| Nom quasi entendu (« Paillet » pour Payet) : le STT a presque bon | **résolveur phonétique** (candidats + score + marge, jamais de réécriture), bloc `[Lexique …]` en fin de message ; marge faible ⇒ l'agent demande « pouvez-vous épeler ? » ; une confirmation réelle est apprise pour ce client (`learn_term`), supprimable (`DELETE /ai/vocab/{id}`) | `lexicon/` (détail : `DECISIONS.md` §5, `apps/ai/README.md`) |
 | Produit ou client ambigu | `search` est flou ; s'il y a plusieurs candidats, demander lequel (`BASE_RULES`) ; Jev `pick_product` donne une confiance | `tools/catalog.py`, `agent/jev_examples.py` |
 | Créneau critique douteux (quantité, date, unité) | répéter la valeur et demander confirmation **avant** l'écriture ; « cinq » et « cinquante » se confondent | prompt + outil |
 | Rien entendu | le kit renvoie « Rien entendu — réessayez. » ; en VAD, préférez une relance naturelle (« Allô ? Vous m'entendez ? ») | `run_turn` |
@@ -462,11 +470,18 @@ pour eux : ne comptez pas dessus sans votre propre clé.
 | STT | Deepgram | `nova-3`, `language=fr`, `keyterm` | WebSocket en direct (`transcribe_stream`, fin par `CloseStream`) ; REST en secours | non |
 | STT | Gradium | `default` | REST ; webm ré-encapsulé en Ogg (`clients/audio.py`) | non |
 | STT | OpenAI | `gpt-4o-mini-transcribe` | REST | non |
+| STT | NVIDIA (optionnel) | `parakeet-1.1b-rnnt-multilingual` (`whisper` : hors ligne seulement), `fr-FR`, boost de vocabulaire | gRPC Riva sur NVCF, `transcribe_stream` en direct pour Parakeet ; webm décodé par `ffmpeg` | non (votre clé `NVIDIA_API_KEY`) |
 | TTS | **ElevenLabs** | `eleven_flash_v2_5`, voix `JBFqnCBsd6RMkjVDRZzb`, `language_code=fr` | REST `/stream`, mp3 | oui |
 | TTS | Gradium | `default`, voix fr-FR `F7Iib4MAyHIRed0x` | REST NDJSON, PCM → mp3 (`Mp3Encoder`) | non |
 | TTS | OpenAI | `gpt-4o-mini-tts`, `alloy` | REST, mp3 | non |
 | LLM | **Anthropic** | `claude-sonnet-5-5`, `LLM_EFFORT=low` | SSE | oui |
 | Décision | **Jev** | `jev-latest` | REST | oui |
+
+**Changer de STT** : une seule variable, `STT_PROVIDER` (`mock` | `soniox` | `deepgram` | `gradium` | `openai` |
+`nvidia`), plus la clé du fournisseur : `STT_API_KEY` pour tous, `NVIDIA_API_KEY` (ou `STT_API_KEY`) pour `nvidia`.
+Le reste du code (partiels, indice de vocabulaire, repli sur la phrase entière) est le même. NVIDIA est **optionnel** :
+`cd apps/ai && uv sync --extra nvidia` + `ffmpeg` (Docker : `AI_UV_SYNC_ARGS=--extra nvidia`,
+`AI_APT_PACKAGES=ffmpeg` dans `.env`, puis `make rebuild`). Détail et tableau complet : [README.md](README.md#configuration-one-env).
 
 **Configuration** (`.env`, puis `make restart`) : `STT_PROVIDER`, `STT_MODEL`, `STT_API_KEY`, `STT_LANGUAGE` ;
 `TTS_PROVIDER`, `TTS_MODEL`, `TTS_VOICE`, `TTS_API_KEY`, `TTS_LANGUAGE` ; `LLM_PROVIDER`, `LLM_MODEL`,

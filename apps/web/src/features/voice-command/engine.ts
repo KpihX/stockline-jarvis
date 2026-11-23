@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react";
 import { MOCK_TTS_MIME, type CommandStreamEvent, type TurnTimings } from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
 import { MIN_HOLD_MS } from "@/lib/hold-to-talk";
+import { caller, callerWire } from "@/features/assistant/caller";
 import type { ToolRun } from "@/features/assistant/tools";
 
 export type CommandPhase = "idle" | "recording" | "working" | "done" | "error";
@@ -188,7 +189,7 @@ async function run(id: number, text: string) {
     res = await fetch(`${AI_BASE}/command${speak ? "?speak=1" : ""}`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ text, actorName: "Commande vocale" }),
+      body: JSON.stringify({ text, ...callerWire(caller.get()) }), // the DECLARED identity (CallerBadge); the server enforces its role
       signal: abort.signal,
     });
   } catch (e) {
@@ -278,8 +279,11 @@ function fail(id: number, message: string) {
   if (state.current === id) set({ phase: "error" });
 }
 
-const liveUrl = (speak: boolean) =>
-  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${AI_BASE}/voice/command${speak ? "?speak=1" : ""}`;
+const liveUrl = (speak: boolean) => {
+  const { role, clientId, actorName } = callerWire(caller.get());
+  const q = new URLSearchParams({ ...(speak ? { speak: "1" } : {}), role, ...(clientId ? { clientId } : {}), ...(actorName ? { actorName } : {}) });
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${AI_BASE}/voice/command?${q}`;
+};
 
 /** Opens WS /voice/command for run `id`: returns `send`, which queues until the socket is open. */
 function openLive(id: number): (data: Blob | string) => void {

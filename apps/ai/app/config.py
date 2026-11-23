@@ -22,6 +22,14 @@ def env(name: str, default: str = "") -> str:
     return os.environ.get(name, "").strip() or default
 
 
+def env_float(name: str) -> float | None:
+    """A number from the environment; unset or not a number → None (never breaks the import)."""
+    try:
+        return float(env(name))
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class LLMSettings:
     provider: str  # openai | openai-compatible | anthropic | gemini | mock
@@ -33,11 +41,17 @@ class LLMSettings:
 
 @dataclass(frozen=True)
 class STTSettings:
-    provider: str  # openai | deepgram | soniox | gradium | mock
+    provider: str  # openai | deepgram | soniox | gradium | nvidia | mock
     api_key: str
     model: str  # empty → the provider's default model (see clients/factory.py)
     language: str  # ISO code of what the caller speaks
     mock_text: str  # what the mock STT "hears"
+    # NVIDIA (Riva on NVCF) only, all optional (clients/nvidia.py):
+    nvidia_api_key: str = ""  # NVIDIA_API_KEY; STT_API_KEY is the fallback
+    nvidia_function_id: str = ""  # empty → the function of STT_MODEL (parakeet | whisper)
+    nvidia_uri: str = ""  # empty → grpc.nvcf.nvidia.com:443
+    nvidia_boost: float | None = None  # vocabulary boost score; None → the model's default, 0 → off
+    nvidia_streaming: str = "auto"  # auto | on | off
 
 
 @dataclass(frozen=True)
@@ -86,6 +100,11 @@ settings = Settings(
         model=env("STT_MODEL"),
         language=env("STT_LANGUAGE", "fr"),
         mock_text=env("MOCK_STT_TEXT", "Bonjour, il vous reste du bar ?"),
+        nvidia_api_key=env("NVIDIA_API_KEY"),
+        nvidia_function_id=env("NVIDIA_STT_FUNCTION_ID"),
+        nvidia_uri=env("NVIDIA_STT_URI"),
+        nvidia_boost=env_float("NVIDIA_STT_BOOST"),
+        nvidia_streaming=env("NVIDIA_STT_STREAMING", "auto").lower(),
     ),
     tts=TTSSettings(
         provider=env("TTS_PROVIDER", "mock").lower(),

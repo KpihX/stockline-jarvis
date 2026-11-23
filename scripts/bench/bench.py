@@ -125,7 +125,7 @@ async def run_scenario(ws_url: str, sid: str, webm: bytes, dur: float, expect: s
                 match msg["type"]:
                     case "transcript" if msg.get("final"):
                         res["transcript"] = msg["text"]
-                    case "agent_tool" if msg.get("ok") is None:
+                    case "agent_tool" if msg.get("ok") is None and "args" in msg:  # (the name-only "started" message is not a second call)
                         res["tools"].append(msg["name"])
                     case "error":
                         res["error"] = msg["message"]

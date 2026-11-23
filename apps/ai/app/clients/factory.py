@@ -18,12 +18,19 @@ from .gradium import GradiumSTT, GradiumTTS
 from .jev import JevClient
 from .mock_llm import MockLLM
 from .mock_speech import MockSTT, MockTTS
+from .nvidia import NvidiaSTT
 from .openai import OpenAILLM, OpenAISTT, OpenAITTS
 from .soniox import SonioxSTT
 
 DEFAULT_MODELS = {"openai": "gpt-4.1-mini", "anthropic": "claude-sonnet-5-5", "gemini": "gemini-2.5-flash"}
 # Speech defaults, all fine for French. STT_MODEL / TTS_MODEL / TTS_VOICE override them.
-DEFAULT_STT_MODELS = {"openai": "gpt-4o-mini-transcribe", "deepgram": "nova-3", "soniox": "stt-rt-v6", "gradium": "default"}
+DEFAULT_STT_MODELS = {
+    "openai": "gpt-4o-mini-transcribe",
+    "deepgram": "nova-3",
+    "soniox": "stt-rt-v6",
+    "gradium": "default",
+    "nvidia": "parakeet-1.1b-rnnt-multilingual",
+}
 DEFAULT_TTS = {  # provider → (model, voice)
     "openai": ("gpt-4o-mini-tts", "alloy"),
     "elevenlabs": ("eleven_flash_v2_5", "JBFqnCBsd6RMkjVDRZzb"),  # premade multilingual voice
@@ -76,7 +83,20 @@ def make_stt_client(cfg: STTSettings) -> STTClient:
             return SonioxSTT(need("STT_API_KEY", cfg.api_key), model, lang)
         case "gradium":
             return GradiumSTT(need("STT_API_KEY", cfg.api_key), model, lang)
-    raise ConfigError(f'Unknown STT_PROVIDER "{cfg.provider}" (deepgram | soniox | gradium | openai | mock)')
+        case "nvidia":  # optional: needs `uv sync --extra nvidia` (imported on first use, see clients/nvidia.py)
+            try:
+                return NvidiaSTT(
+                    need("NVIDIA_API_KEY (or STT_API_KEY)", cfg.nvidia_api_key or cfg.api_key),
+                    model,
+                    lang,
+                    function_id=cfg.nvidia_function_id,
+                    uri=cfg.nvidia_uri,
+                    boost=cfg.nvidia_boost,
+                    streaming=cfg.nvidia_streaming,
+                )
+            except ValueError as e:  # unknown STT_MODEL without NVIDIA_STT_FUNCTION_ID
+                raise ConfigError(str(e)) from None
+    raise ConfigError(f'Unknown STT_PROVIDER "{cfg.provider}" (mock | soniox | deepgram | gradium | openai | nvidia)')
 
 
 def make_tts_client(cfg: TTSSettings) -> TTSClient:

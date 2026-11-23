@@ -7,6 +7,8 @@ actually say ("loup" for bar), client names — read from the ERP and sent to th
 import asyncio
 import time
 
+from app.lexicon.catalogue import JARGON
+from app.lexicon.store import store
 from app.tools.erp import ErpClient
 
 TTL_S = 300  # refresh every 5 min
@@ -32,6 +34,7 @@ async def company_terms(erp: ErpClient | None = None) -> list[str]:
             )
             names = [c.get("name") for c in clients] + [p.get("name") for p in products]
             names += [a for p in products for a in p.get("aliases") or []]
+            names += JARGON  # CHR / Savoie words people say, after everything catalogue-related (the STT keeps the first terms)
             terms = dedupe(names)[:MAX_TERMS]
             _cache = (time.monotonic() + TTL_S, terms)
         except Exception as e:  # ERP unreachable, other shape…: transcribe without vocabulary
@@ -50,13 +53,17 @@ def dedupe(names: list) -> list[str]:
     return out
 
 
-async def stt_hint(stt_name: str, hint: str | None) -> str | None:
-    """The hint sent to the STT: the caller's own hint first, then the company vocabulary.
+async def stt_hint(stt_name: str, hint: str | None, client_id: str | None = None) -> str | None:
+    """The hint sent to the STT: the caller's own hint first, then (once the caller is identified) THEIR terms, then the
+    company vocabulary. Order matters: the STT keeps the first terms when its budget is full (soniox.py MAX_TERMS_CHARS).
+    Rebuilt for every utterance: the client terms come from a cache (lexicon/store.py) and are waited for at most
+    HINT_CLIENT_WAIT_S, so a cold cache costs one global-only turn, never a late start.
     The mock STT returns its hint as the transcript, so it gets the caller's hint untouched."""
     if stt_name == "mock":
         return hint
     terms = await company_terms()
-    return ", ".join([*([hint] if hint else []), *terms]) or None
+    mine = await store.client_terms(client_id)
+    return ", ".join([*([hint] if hint else []), *dedupe([*mine, *terms])]) or None
 
 
 def reset_cache() -> None:

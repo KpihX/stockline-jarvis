@@ -5,10 +5,11 @@
  * Agent audio: binary frames between agent_audio_start/end → one Blob → <audio>. Mock TTS → speechSynthesis (fr-FR).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MOCK_TTS_MIME, type TurnCost, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
+import { MOCK_TTS_MIME, type CallerRole, type TurnCost, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
 import { MIN_HOLD_MS } from "@/lib/hold-to-talk";
 import { SegmentPlayer } from "./audio-player";
+import { caller, callerWire, useCaller } from "./caller";
 import type { ToolRun } from "./tools";
 
 export type Conn = "connecting" | "ready" | "offline";
@@ -40,6 +41,7 @@ export function useVoiceSession() {
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [level, setLevel] = useState(0);
   const [lastError, setLastError] = useState<string>();
+  const [effectiveRole, setEffectiveRole] = useState<CallerRole>(); // what the server enforces (its `ready` answer to our declared identity)
 
   const ws = useRef<WebSocket>();
   const sessionId = useRef<string>();
@@ -129,6 +131,7 @@ export function useVoiceSession() {
       case "ready":
         sessionId.current = m.sessionId;
         setProviders({ llm: m.llm, stt: m.stt, tts: m.tts, sessionId: m.sessionId });
+        setEffectiveRole(m.role);
         setConn("ready");
         break;
       case "transcript": {
@@ -150,8 +153,13 @@ export function useVoiceSession() {
       case "agent_tool":
         patchTurn(id, (t) => {
           const tools = [...t.agent.tools];
-          if (m.ok === undefined) tools.push({ id: `${t.id}-${tools.length}`, name: m.name, args: m.args });
-          else {
+          if (m.ok === undefined) {
+            // Three messages per tool: started (name only, as soon as the model begins the call), called (args), done (ok/ms).
+            // A "called" message completes the entry its "started" message opened (same name, no args yet) instead of adding a second one.
+            const started = m.args ? tools.findIndex((x) => x.name === m.name && x.args === undefined && x.ok === undefined) : -1;
+            if (started >= 0) tools[started] = { ...tools[started], args: m.args };
+            else tools.push({ id: `${t.id}-${tools.length}`, name: m.name, args: m.args });
+          } else {
             const i = tools.findIndex((x) => x.name === m.name && x.ok === undefined);
             if (i >= 0) tools[i] = { ...tools[i], ok: m.ok, ms: m.ms };
             else tools.push({ id: `${t.id}-${tools.length}`, name: m.name, ok: m.ok, ms: m.ms });
@@ -204,7 +212,8 @@ export function useVoiceSession() {
     const sock = new WebSocket(wsUrl());
     sock.binaryType = "arraybuffer";
     ws.current = sock;
-    sock.onopen = () => sock.send(JSON.stringify({ type: "start", sessionId: sessionId.current, actorName: "Agent vocal" } satisfies VoiceClientMessage));
+    // The DECLARED identity (CallerBadge) rides on `start`; the server enforces it and echoes the effective role in `ready`.
+    sock.onopen = () => sock.send(JSON.stringify({ type: "start", sessionId: sessionId.current, ...callerWire(caller.get()) } satisfies VoiceClientMessage));
     sock.onmessage = onMessage;
     sock.onclose = () => {
       if (ws.current !== sock) return;
@@ -229,6 +238,21 @@ export function useVoiceSession() {
       void audioCtx.current?.close().catch(() => undefined);
     };
   }, [connect, stopPlayback]);
+
+  // Another identity = another conversation: the server wipes the history on `start`, so the screen does too.
+  const identity = useCaller();
+  const identityKey = JSON.stringify(identity);
+  const sentIdentity = useRef(identityKey);
+  useEffect(() => {
+    if (sentIdentity.current === identityKey) return;
+    sentIdentity.current = identityKey;
+    stopPlayback();
+    currentTurn.current = undefined;
+    setTurns([]);
+    setActivity("idle");
+    setLastError(undefined);
+    send({ type: "start", sessionId: sessionId.current, ...callerWire(identity) });
+  }, [identity, identityKey, send, stopPlayback]);
 
   // ── Mic ──
   const openMic = useCallback(async (): Promise<MediaStream | undefined> => {
@@ -372,7 +396,7 @@ export function useVoiceSession() {
   }, [send, stopPlayback]);
 
   return {
-    conn, activity, mic, providers, turns, level, lastError,
+    conn, activity, mic, providers, turns, level, lastError, effectiveRole,
     startTalking, stopTalking, sendText, stopPlayback, reset, reconnect: connect,
   };
 }

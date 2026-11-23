@@ -19,10 +19,13 @@ from app.clients import LLMClient, LLMRequest, LLMText, LLMToolCall
 from app.clients.anthropic import to_anthropic_messages
 from app.clients.gemini import to_gemini_contents
 from app.clients.openai import to_openai_message
+from app.policy import Caller
 from app.schemas import ChatMessage, DoneEvent, ErrorEvent, TextEvent, ToolCall, ToolCallEvent, ToolResultEvent
 from app.services import voice_session
 from app.services.voice_session import trim
 from app.tools.registry import Tool, ToolArgs
+
+DIRECTION = Caller("direction")  # the tools of these tests are not in the access table: an internal role may run anything
 
 # ── helpers ──
 
@@ -148,7 +151,7 @@ TOOLS = [
 
 @pytest.fixture(autouse=True)
 def no_erp_prompt(monkeypatch):
-    async def prompt(mode, actor_name=None):
+    async def prompt(mode, actor_name=None, caller=None):
         return "SYS"
 
     monkeypatch.setattr(agent_loop, "build_system_prompt", prompt)
@@ -159,7 +162,7 @@ async def run(steps, history=None, max_steps=None):
     server = [*(history or []), ChatMessage(role="user", content="go")]
     llm = ScriptedLLM(steps)
     rec, events = TurnRecorder(), []
-    async for ev in run_agent(server, llm=llm, tools=TOOLS, max_steps=max_steps):
+    async for ev in run_agent(server, llm=llm, tools=TOOLS, max_steps=max_steps, caller=DIRECTION):
         rec.push(ev)
         events.append(ev)
     browser = [*(history or []), ChatMessage(role="user", content="go"), *rec.finish()]
@@ -212,7 +215,7 @@ async def test_error_after_some_tool_results():
 
     server = [ChatMessage(role="user", content="go")]
     rec = TurnRecorder()
-    async for ev in run_agent(server, llm=Boom([[call("a")], [call("b")]]), tools=TOOLS):
+    async for ev in run_agent(server, llm=Boom([[call("a")], [call("b")]]), tools=TOOLS, caller=DIRECTION):
         rec.push(ev)
     assert server[-1].role == "tool"  # the loop leaves the done rounds, paired
     browser = [ChatMessage(role="user", content="go"), *rec.finish()]
@@ -357,7 +360,7 @@ def voice_session_with(monkeypatch, steps, tts_sleep=False):
     else:
         monkeypatch.setattr(voice_session, "get_tts_client", lambda: MockTTS())
     session = voice_session.VoiceConnection(FakeWS())
-    conv = voice_session.Conversation(id="t")
+    conv = voice_session.Conversation(id="t", caller=DIRECTION)
     return session, conv, llm
 
 

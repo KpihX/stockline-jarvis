@@ -26,6 +26,14 @@ def compact_event(e: dict) -> dict:
     }
 
 
+UNVERIFIED = "Déclaré par le client (non vérifié) : "
+
+
+def provenance_tags(ctx: ToolContext) -> list[str]:
+    """Tags of every record the agent writes: who it was talking to (a DECLARED identity, app/policy.py) and whether it is verified."""
+    return [ctx.caller.provenance, *([] if ctx.caller.internal else ["non-verifie"])]
+
+
 def open_first(events: list[dict]) -> list[dict]:
     """Open issues first, then the rest (the API already returns newest first)."""
     return [e for e in events if e.get("status") == "open"] + [e for e in events if e.get("status") != "open"]
@@ -79,7 +87,11 @@ async def log_client_event(
     Les réclamations, problèmes qualité/livraison, retours, litiges sont créés « ouverts » pour être traités par l'équipe.
     Reformule fidèlement ce que dit le client, sans promettre de geste commercial. Record a client event (e.g. a complaint).
     """
-    body = {"type": type, "title": title, "description": description, "severity": severity, "orderId": order_id}
+    body = {"type": type, "title": title, "description": description, "severity": severity, "orderId": order_id, "tags": provenance_tags(ctx)}
+    if ctx.caller.role == "client":  # what a declared client says is a claim, never a fact: worded as one, low severity (app/policy.py)
+        body["title"] = title if title.startswith(UNVERIFIED) else f"{UNVERIFIED}{title}"
+        body["description"] = description if (description or "").startswith("Le client ") else f"Le client affirme ou demande : {description or title}"
+        body["severity"] = "low"
     event = await ctx.erp.post(f"/api/clients/{enc(client_id)}/events", without_none(body))
     return compact_event(event)
 
@@ -126,7 +138,7 @@ async def log_supplier_event(
     Enregistre un événement dans l'historique d'un fournisseur, ex. un lot de mauvaise qualité, une livraison incomplète, une rupture.
     Les problèmes sont créés « ouverts ». Record a supplier event (quality issue, shortage, price change…).
     """
-    body = {"type": type, "title": title, "description": description, "severity": severity, "purchaseOrderId": purchase_order_id}
+    body = {"type": type, "title": title, "description": description, "severity": severity, "purchaseOrderId": purchase_order_id, "tags": provenance_tags(ctx)}
     event = await ctx.erp.post(f"/api/suppliers/{enc(supplier_id)}/events", without_none(body))
     return compact_event(event)
 

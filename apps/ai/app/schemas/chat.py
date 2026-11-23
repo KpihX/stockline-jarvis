@@ -13,6 +13,9 @@ from .base import WireModel
 
 ChatRole = Literal["system", "user", "assistant", "tool"]
 ChatMode = Literal["chat", "voice", "command"]
+# Who is on the line (DECLARED identity: the demo has no caller-ID). The server enforces what the role may do (app/policy.py).
+# unknown = not identified (default) · client = bound to ONE client id · sales = commercial · direction = management (both internal).
+CallerRole = Literal["unknown", "client", "sales", "direction"]
 
 
 class ToolCall(WireModel):
@@ -44,7 +47,9 @@ class ChatRequest(WireModel):
     mode: ChatMode | None = Field(
         None, description="voice → short spoken-style answers; command → single-turn, act-first, one line"
     )
-    actor_name: str | None = None
+    actor_name: str | None = Field(None, description="Declared name of the caller (shown as the author of ERP writes)")
+    role: CallerRole | None = Field(None, description="Declared role (default unknown). Header fallback: x-caller-role")
+    client_id: str | None = Field(None, description="cli_… the caller is bound to (role client), or the client a commercial is working on. Header fallback: x-caller-client-id")
 
 
 class Usage(WireModel):
@@ -89,6 +94,15 @@ class TurnCost(WireModel):
 class TextEvent(WireModel):
     type: Literal["text"] = "text"
     delta: str
+
+
+class ToolStartEvent(WireModel):
+    """The model has begun a tool call (name known, arguments not yet complete). INTERNAL: only `run_agent(announce_tools=True)`
+    yields it (the voice session, for the filler); it is not part of POST /chat's stream (`ChatStreamEvent`)."""
+
+    type: Literal["tool_start"] = "tool_start"
+    name: str
+    call_id: str = ""
 
 
 class ToolCallEvent(WireModel):

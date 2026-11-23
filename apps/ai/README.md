@@ -110,6 +110,7 @@ Implement one interface from `clients/base.py` in a new file, then add a `case` 
 | **Deepgram** | `nova-3`, `language=fr`, keyterms from the hint | | REST `/v1/listen`; live WS in `transcribe_stream` | webm/opus as is |
 | **Soniox** | `stt-rt-v6`, `language_hints: ["fr"]`, `context.terms` | | real-time WS (also for push-to-talk) | webm/opus as is (`audio_format: auto`) |
 | **Gradium** | `default`, `json_config.language = fr`, keyword boosting | `default`, French voice | REST, NDJSON streams | STT: webm re-wrapped to Ogg/Opus (`clients/audio.py`, no re-encode); Safari mp4 refused. TTS: PCM → mp3 on the fly |
+| **NVIDIA** (optional) | `parakeet-1.1b-rnnt-multilingual` (live, word boosting) or `whisper-large-v3` (offline), `fr-FR` | | Riva gRPC on NVCF (`uv sync --extra nvidia`) | WAV 16 kHz mono as is; webm/mp4 decoded by `ffmpeg` |
 | **ElevenLabs** | | `eleven_flash_v2_5`, `language_code=fr` | REST `/stream` | mp3 |
 | **OpenAI** | `gpt-4o-mini-transcribe` | `gpt-4o-mini-tts` | REST | webm / mp3 |
 
@@ -214,8 +215,9 @@ if jev:
 | `AGENT_MAX_STEPS` | 8 | model ↔ tools round-trips per turn |
 | `JEV_API_KEY` | | optional; empty → `get_jev_client()` is None |
 | `JEV_BASE_URL` / `JEV_MODEL` | `https://api.typesafe.ai` / `jev-latest` | Jev decision model (see above) |
-| `STT_PROVIDER` | mock | `deepgram` \| `soniox` \| `gradium` \| `openai` \| `mock` |
-| `STT_API_KEY` / `STT_MODEL` | per provider | deepgram `nova-3`, soniox `stt-rt-v6`, gradium `default`, openai `gpt-4o-mini-transcribe` |
+| `STT_PROVIDER` | mock | `deepgram` \| `soniox` \| `gradium` \| `openai` \| `nvidia` (optional extra) \| `mock` |
+| `STT_API_KEY` / `STT_MODEL` | per provider | deepgram `nova-3`, soniox `stt-rt-v6`, gradium `default`, openai `gpt-4o-mini-transcribe`, nvidia `parakeet` (or `whisper`) |
+| `NVIDIA_API_KEY` | | `STT_PROVIDER=nvidia` only (`STT_API_KEY` also accepted); `NVIDIA_STT_FUNCTION_ID` / `_URI` / `_BOOST` / `_STREAMING` tune it, see `clients/nvidia.py` |
 | `STT_LANGUAGE` | fr | language of the caller |
 | `MOCK_STT_TEXT` | "Bonjour, il vous reste du bar ?" | what the mock STT "hears" whatever is said (`POST /stt` and `/command` use the `x-mock-text` header instead when given, WS `/voice` the `hint` of `audio_start`) |
 | `TTS_PROVIDER` | mock | `elevenlabs` \| `gradium` \| `openai` \| `mock` |
@@ -228,3 +230,27 @@ if jev:
 - Prefetch the caller's client sheet at `start` and put it in the system prompt.
 - Starting the LLM on a stable partial transcript before the caller releases the key; hands-free mode on Soniox `<end>` tokens.
 - Filler audio ("je regarde…") while tools run; voice activity detection instead of push-to-talk.
+
+## Vocabulary (evolving, per client) — `app/lexicon/`
+
+Misheard names are the main STT error ("Paillet" for the client "Payet"). The kit's answer, in three layers (rationale and measured results: `DECISIONS.md` §5):
+
+- **STT biasing** (`services/vocabulary.py`): the Soniox `context.terms` start with the caller's own terms (their name, products they usually order, contacts, delivery places) once the agent has identified them
+  (a tool call on a `cli_…`), then the global catalogue terms. Rebuilt for every utterance (`Utterance(..., client_id=...)`), cached, never delays a turn start.
+- **Deterministic resolver** (`lexicon/resolver.py`, pure Python, ~2 ms): each group of 1-5 words of the final transcript is compared with the lexicon using French phonetics. Returns candidates with a score and a margin
+  (`exact` / `resolved` / `ambiguous`) and never rewrites the transcript: a block `[Lexique : …]` is appended at the END of the user message (the cached prefix stays identical). Optional Jev (`lexicon/decide.py`) settles ambiguities; below its threshold the agent asks and offers to spell.
+- **Learning** (`lexicon/store.py`, `guard.py`): tool `learn_term` records "what the caller says → the entity" for a client **only** after a proof the guard checks on the real conversation (`spelled`, `confirmed` by an explicit yes, or a confirmed `order`).
+  Entries live in the ERP **context table** (tag `vocab`, no new table); a pair confirmed for 3 distinct clients is promoted to global; entries never reused expire. Tools: `resolve_mention`, `learn_term`, `forget_term`.
+
+Thresholds: one file, `lexicon/config.py`. Inspect and unlearn:
+
+```bash
+curl -s 'localhost:4100/vocab?clientId=cli_0082'              # what was learned (all clients without clientId)
+curl -s -G 'localhost:4100/vocab/resolve' --data-urlencode 'q=ici le refuge Paillet' --data-urlencode 'clientId=cli_0082'   # what the resolver makes of a phrase
+curl -s -X DELETE localhost:4100/vocab/ctx_1106               # forget one entry (a wrong lesson)
+curl -s -X POST localhost:4100/vocab/prune                    # delete the expired entries
+curl -s 'localhost:4000/api/context?tag=vocab'                # the same rows, as the ERP stores them (client sheet → Contexte tab)
+```
+
+`make reset` wipes the context table back to the seed, so learned entries disappear (`POST /vocab/refresh` makes the AI service notice at once). Offline evaluation: `cd apps/ai && uv run python ../../scripts/bench/vocab_eval.py`.
+Files: `phonetic.py` (keys, distances) · `resolver.py` · `catalogue.py` (global + client lexicons from the ERP) · `learned.py` (row convention) · `guard.py` · `decide.py` (Jev) · `store.py` (ERP + caches) · `runtime.py` (voice-turn glue) · `tools/vocabulary.py` · `routers/vocab.py`.

@@ -26,8 +26,15 @@ FINAL_TIMEOUT_S = 5.0  # after audio_end, how long to wait for the live stream's
 
 
 class Utterance:
-    def __init__(self, stt: STTClient, mime: str, hint: str | None, on_partial: Callable[[STTUpdate], Awaitable[None]]):
-        self.stt, self.mime, self.hint, self.on_partial = stt, mime, hint, on_partial
+    def __init__(
+        self,
+        stt: STTClient,
+        mime: str,
+        hint: str | None,
+        on_partial: Callable[[STTUpdate], Awaitable[None]],
+        client_id: str | None = None,  # the caller, once identified: their vocabulary goes first in the STT terms (rebuilt for each utterance)
+    ):
+        self.stt, self.mime, self.hint, self.on_partial, self.client_id = stt, mime, hint, on_partial, client_id
         self.frames: list[bytes] = []
         self.started_at = time.monotonic()
         self.audio_seconds = 0.0  # set at audio_end: the audio is streamed in real time, so ≈ the length of the speech (STT billing)
@@ -47,7 +54,7 @@ class Utterance:
                 return await asyncio.wait_for(self.live, FINAL_TIMEOUT_S)  # on timeout the stream is cancelled
             except Exception as e:
                 print(f"[ai] live STT failed ({type(e).__name__}: {e}): transcribing the whole recording", flush=True)
-        hint = await stt_hint(self.stt.name, self.hint)
+        hint = await stt_hint(self.stt.name, self.hint, self.client_id)
         return await self.stt.transcribe(b"".join(self.frames), self.mime, hint)
 
     def cancel(self) -> None:
@@ -63,7 +70,7 @@ class Utterance:
             yield frame
 
     async def _listen(self) -> str:
-        hint = await stt_hint(self.stt.name, self.hint)  # cached; frames wait in the queue meanwhile
+        hint = await stt_hint(self.stt.name, self.hint, self.client_id)  # cached; frames wait in the queue meanwhile
         shown = None
         # aclosing: leaving early (final words, cancellation) closes the provider's socket right away
         async with aclosing(self.stt.transcribe_stream(self._audio(), self.mime, hint)) as updates:  # type: ignore[type-var]

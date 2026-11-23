@@ -20,6 +20,7 @@ from app.clients.http import ProviderError
 from app.clients.mock_speech import MockSTT, MockTTS
 from app.clients.soniox import SonioxSTT
 from app.clients.ws import open_ws
+from app.lexicon.catalogue import JARGON
 from app.routers import voice as voice_router
 from app.services import command, utterance, vocabulary, voice_session
 from app.services.utterance import Utterance
@@ -326,7 +327,8 @@ async def test_company_terms_from_the_erp(monkeypatch):
         return httpx.Response(200, json=[{"name": "Lemoine"}, {"name": "LOUP"}])
 
     erp = ErpClient("voice_agent", base_url="http://erp", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    assert await vocabulary.company_terms(erp) == ["Lemoine", "LOUP", "Bar de ligne 1-2 kg", "Turbot sauvage", "Bar"]
+    # client names, product names, aliases, then the CHR / Savoie jargon (lexicon/catalogue.py)
+    assert await vocabulary.company_terms(erp) == ["Lemoine", "LOUP", "Bar de ligne 1-2 kg", "Turbot sauvage", "Bar", *vocabulary.dedupe(JARGON)]
     assert sorted(seen) == [("/api/clients", "500"), ("/api/products", "500")]
     vocabulary.reset_cache()
 

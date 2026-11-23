@@ -23,6 +23,14 @@ class LLMRequest:
     messages: list[ChatMessage]  # user / assistant (with tool_calls) / tool (with tool_call_id + name)
     tools: list[ToolInfo] = field(default_factory=list)
     max_tokens: int | None = None
+    # Per-session tail of the system prompt (caller identity, client sheet). Kept apart from `system` so the big shared prefix
+    # stays one cacheable block that every session of the same access scope reads (Anthropic: its own cache breakpoint).
+    system_suffix: str = ""
+
+    @property
+    def full_system(self) -> str:
+        """`system` + `system_suffix` as one string, for providers without block-level caching."""
+        return f"{self.system}\n\n{self.system_suffix}" if self.system_suffix else self.system
 
 
 @dataclass
@@ -40,6 +48,16 @@ class LLMToolCall:
 
 
 @dataclass
+class LLMToolStart:
+    """The model has STARTED a tool call (name known, arguments still streaming). Optional: only adapters that can tell early
+    (Anthropic: `content_block_start`) emit it, always followed by the matching LLMToolCall. Lets the voice session
+    react (filler) before the arguments are complete."""
+
+    name: str
+    id: str = ""
+
+
+@dataclass
 class LLMUsage:
     input_tokens: int | None = None  # Anthropic: uncached input only (total = input + cache_creation + cache_read)
     output_tokens: int | None = None
@@ -47,7 +65,7 @@ class LLMUsage:
     cache_read_input_tokens: int | None = None  # prompt cache hit (Anthropic), ~0.1x price
 
 
-LLMEvent = LLMText | LLMToolCall | LLMUsage
+LLMEvent = LLMText | LLMToolStart | LLMToolCall | LLMUsage
 
 
 class LLMClient(ABC):

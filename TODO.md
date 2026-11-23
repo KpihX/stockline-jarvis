@@ -15,10 +15,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] First bench on the 2 user recordings: Whisper large-v3 (NVCF) 0.43-0.67 s, finds "Les Marseillais"; Soniox misses it on file 2 ("Les Maciers")
 - [x] Parakeet diagnosed: `language=fr` is unavailable on NVCF; `multi` / `fr-FR` work (~0.5 s). My first bench failed because of that default.
 - [ ] 20-sentence corpus (real clients/products, 2 TTS voices, clean + noisy): Soniox streaming vs Whisper vs Parakeet; metric = errors on entity words (client/product/quantity), not global WER
-- [ ] Hybrid STT: lexicon biasing -> deterministic phonetic/fuzzy resolver -> Jev picks among close candidates -> LLM receives raw text + resolved candidates
-- [ ] Lexicon: global (catalogue, aliases, CHR jargon) + per client (order history, client sheet); grows only from CONFIRMED orders; promote a pair seen across several clients
+- [x] Hybrid STT: lexicon biasing -> deterministic phonetic/fuzzy resolver -> Jev picks among close candidates -> LLM receives raw text + resolved candidates
+- [x] Lexicon: global (catalogue, aliases, CHR jargon) + per client (order history, client sheet); grows only from CONFIRMED orders; promote a pair seen across several clients
 - [ ] NVIDIA bricks must stay optional in the jury repo (kit keys = Anthropic, Soniox, ElevenLabs, Jev); fallback = Soniox
 - Note: "Les Marseillais" is not a team-01 client (94 clients checked): the 2 recordings test unknown-name robustness.
+- Vocabulary (2026-11-24, details DECISIONS.md §5): `apps/ai/app/lexicon/` — phonetic resolver (candidates + score + margin, never rewrites), global + per-client lexicon (client sheet: contacts, places, usual basket), learned entries stored in the ERP context table (tag `vocab`), `learn_term` only after spelled / confirmed (yes) / order proof checked against the real conversation, promotion at 3 distinct clients (`lexicon/config.py`), decay, `forget_term` + `GET/DELETE /vocab`; STT terms client-first once the caller is known; Jev settles ambiguities (optional).
+  - [x] Offline eval `scripts/bench/vocab_eval.py` on stored transcripts: entity recall soniox-plain 54→61/62, soniox-vocab 60→62/62, whisper-v3 52→62/62, parakeet 38→60/62; 0 wrong proposals on 80 transcripts + 12 negative sentences; resolver median 2.2 ms (host)
+  - [ ] Re-run `tmp/stt-lab/run_soniox.py` with the new STT hint (client-first terms + jargon) to measure the real STT effect (quota)
+  - [ ] Test with a real microphone, real accents and noise (the corpus is clean TTS)
+  - [ ] Tune the thresholds on a bigger, independent corpus (they were set looking at the 20 sentences)
+  - [ ] Optional: UI tab to list / delete learned entries (API + the client's Contexte tab exist); keep the learning across `make reset` (export / import not done)
 
 ## V0 — fast and measurable (~2 h)
 - [x] V0.9 UI bug: "press Space" hint but only click-and-hold works -> make BOTH work (Space hold + pointer hold), fix labels (sub-agent)

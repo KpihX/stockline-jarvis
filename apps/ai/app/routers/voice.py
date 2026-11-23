@@ -3,6 +3,7 @@ WS /voice/command: one voice command with live transcription (app/services/comma
 
 from fastapi import APIRouter, WebSocket
 
+from app.policy import Caller
 from app.services.command import serve_command_ws
 from app.services.voice_session import VoiceConnection
 
@@ -15,5 +16,6 @@ async def voice(ws: WebSocket):
 
 
 @router.websocket("/voice/command")
-async def voice_command(ws: WebSocket, speak: str | None = None):
-    await serve_command_ws(ws, speak=speak in ("1", "true"))
+async def voice_command(ws: WebSocket, speak: str | None = None, role: str | None = None, clientId: str | None = None, actorName: str | None = None):
+    """Declared identity in the query string (role, clientId, actorName), default unknown: see app/policy.py."""
+    await serve_command_ws(ws, speak=speak in ("1", "true"), caller=Caller.declare(role, clientId, actorName))

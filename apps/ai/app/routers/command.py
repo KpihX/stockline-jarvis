@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from app.policy import Caller
 from app.schemas import CommandRequest, ErrorResponse
 from app.services.command import run_command
 
@@ -51,9 +52,16 @@ async def command(request: Request, speak: str | None = None):
             mime=content_type or "audio/webm",
             hint=header_text(request.headers.get("x-mock-text") or request.headers.get("x-stt-hint")),
             actor_name=(typed and typed.actor_name) or header_text(request.headers.get("x-actor-name")) or "Commande vocale",
+            caller=caller_of_request(request.headers, typed.role if typed else None, typed.client_id if typed else None, typed.actor_name if typed else None),
             speak=speak in ("1", "true"),
         )
     )
+
+
+def caller_of_request(headers, role: str | None = None, client_id: str | None = None, actor_name: str | None = None) -> Caller:
+    """The DECLARED identity of a request (not authenticated: the demo has no caller-ID): body fields, else the x-caller-role /
+    x-caller-client-id / x-actor-name headers; default unknown. The server enforces what the role may do (app/policy.py)."""
+    return Caller.declare(role or headers.get("x-caller-role"), client_id or headers.get("x-caller-client-id"), actor_name or header_text(headers.get("x-actor-name")))
 
 
 def header_text(value: str | None) -> str | None:

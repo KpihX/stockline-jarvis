@@ -32,9 +32,13 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
 from app.agent import run_agent, sanitize_history
+from app.agent.prompts import build_session_block
 from app.agent.loop import ms_since
 from app.clients import STTUpdate, TTSClient, get_llm_client, get_stt_client, get_tts_client
 from app.config import settings
+from app.lexicon.runtime import annotate, caller_of
+from app.lexicon.store import store as lexicon_store
+from app.policy import UNKNOWN, Caller
 from app.pricing import estimate_cost
 from app.schemas import (
     AgentAudioEndMessage,
@@ -55,6 +59,7 @@ from app.schemas import (
     TextMessage,
     ToolCallEvent,
     ToolResultEvent,
+    ToolStartEvent,
     TranscriptMessage,
     TurnCost,
     TurnTimings,
@@ -65,7 +70,7 @@ from app.schemas import (
 from app.schemas.base import WireModel
 from app.tools import all_tools
 
-from . import warmup
+from . import memory, turn_hints, warmup
 from .utterance import Utterance
 from .vocabulary import stt_hint
 
@@ -77,6 +82,10 @@ class Conversation:
     id: str
     actor_name: str | None = None
     history: list[ChatMessage] = field(default_factory=list)
+    caller: Caller = UNKNOWN  # DECLARED identity (UI selector): what the harness enforces (app/policy.py). A new identity wipes the history.
+    session_block: str | None = None  # prompt tail (identity + client sheet) built once and frozen for the conversation: the prompt cache keeps reading it
+    client_id: str | None = None  # the caller, once the agent has identified them (a tool call about cli_…): their vocabulary is used from the next utterance
+    facts: dict = field(default_factory=dict)  # business facts of the turns folded into the summary at the head of `history` (services/compaction.py)
 
 
 # In memory: a reconnect with the same sessionId continues the conversation.
@@ -141,12 +150,12 @@ class VoiceConnection:
             await self.open()  # no "start" yet: open a fresh conversation
 
         match msg:
-            case StartMessage(session_id=session_id, actor_name=actor_name):
+            case StartMessage(session_id=session_id, actor_name=actor_name, role=role, client_id=client_id):
                 await self.interrupt()
-                await self.open(session_id, actor_name)
+                await self.open(session_id, actor_name, Caller.declare(role, client_id, actor_name))
             case AudioStartMessage(mime=mime, hint=hint):
                 await self.interrupt()  # barge-in
-                self.recording = Utterance(get_stt_client(), mime, hint, on_partial=self.send_partial)
+                self.recording = Utterance(get_stt_client(), mime, hint, on_partial=self.send_partial, client_id=self.conversation.client_id)
             case AudioEndMessage():
                 if self.recording:
                     utterance, self.recording = self.recording, None
@@ -160,35 +169,98 @@ class VoiceConnection:
                 self.start_turn(text=text)
             case ResetMessage():
                 await self.interrupt()
-                self.conversation.history = []
+                self.conversation.history, self.conversation.facts = [], {}
+                memory.forget(self.conversation)  # the stored copy goes too (it is written again at the next committed turn)
                 await self.open(self.conversation.id)
 
     async def send_partial(self, update: STTUpdate) -> None:
         await self.send(TranscriptMessage(text=update.text, final=False, stable=update.stable))
 
-    async def open(self, session_id: str | None = None, actor_name: str | None = None) -> None:
-        conv = conversations.get(session_id or "") or Conversation(id=session_id or str(uuid.uuid4()))
+    # ── filler policy (the Speaker plays it, these decide when) ──
+
+    last_filler_at: float | None = None  # monotonic time of the last filler of this connection
+
+    def since_filler(self) -> float | None:
+        return None if self.last_filler_at is None else time.monotonic() - self.last_filler_at
+
+    def play_filler(self, speaker: "Speaker") -> None:
+        speaker.say_filler()
+        self.last_filler_at = time.monotonic()
+
+    def before_tool(self, speaker: "Speaker") -> None:
+        """The model is calling a tool: whatever it said before is complete. A filler is already queued (it was played as soon as the
+        transcript was final): the model's own text before its FIRST tool call is dropped, so the wait phrase is never doubled. Otherwise
+        that text is spoken now (not after the tools) and, if there is nothing to hear yet, a canned wait phrase fills the silence."""
+        first, speaker.tool_seen = not speaker.tool_seen, True
+        if first and speaker.filler_queued:
+            speaker.buffer = ""
+        else:
+            speaker.flush()
+        if not speaker.queued:
+            self.play_filler(speaker)
+
+    async def open(self, session_id: str | None = None, actor_name: str | None = None, caller: Caller | None = None) -> None:
+        # memory → disk (reconnect after a reload / restart, services/memory.py) → a new conversation
+        conv = conversations.get(session_id or "") or memory.restore(Conversation, session_id or "") or Conversation(id=session_id or str(uuid.uuid4()))
         if actor_name:
             conv.actor_name = actor_name
+        identity_changed = caller is not None and caller != conv.caller
+        if caller is not None and identity_changed:
+            # Another identity on the same conversation: nothing said or fetched for the previous one may reach the new one.
+            conv.caller, conv.history, conv.session_block, conv.client_id = caller, [], None, caller.client_id
         conversations[conv.id] = self.conversation = conv
         llm = get_llm_client()
         await self.send(
-            ReadyMessage(session_id=conv.id, stt=get_stt_client().name, tts=get_tts_client().name, llm=f"{llm.provider}:{llm.model}")
+            ReadyMessage(
+                session_id=conv.id, stt=get_stt_client().name, tts=get_tts_client().name, llm=f"{llm.provider}:{llm.model}",
+                role=conv.caller.role, client_id=conv.caller.client_id, actor_name=conv.caller.actor_name,
+            )
         )
         if not self.warm_tasks:
             self.warm_tasks = self.start_warm_up(llm)
+        elif identity_changed and llm.provider != "mock":  # the cached prompt is the previous identity's: prime the new one now
+            self.warm_tasks.append(asyncio.create_task(warmup.safely("llm (identity)", self.prime_identity(llm, force=True))))
+        if identity_changed:
+            self.warm_tasks.append(asyncio.create_task(warmup.safely("session block", self.freeze_block(conv))))
+
+    async def freeze_block(self, conv: Conversation) -> str:
+        """The prompt tail of this conversation (identity + preloaded client sheet), built once. Safe to call from a warm-up task and a turn."""
+        caller, block = conv.caller, conv.session_block
+        if block is None:
+            block = await build_session_block(caller)
+            if conv.caller == caller and conv.session_block is None:
+                conv.session_block = block
+        return conv.session_block if conv.session_block is not None else block
+
+    async def warm_all(self, llm, tts) -> None:
+        """warmup.warm_up for this conversation's identity: the client sheet is fetched first so the primed prompt is the real one."""
+        conv = self.conversation
+        block = await self.freeze_block(conv) if conv else None
+        await warmup.warm_up(llm, tts, all_tools(), conv.actor_name if conv else None, caller=conv.caller if conv else None, session_block=block)
+
+    async def prime_identity(self, llm, *, force: bool = False) -> None:
+        conv = self.conversation
+        if conv:
+            await warmup.prime_llm(llm, all_tools(), conv.actor_name, force=force, caller=conv.caller, session_block=await self.freeze_block(conv))
 
     def start_warm_up(self, llm) -> list[asyncio.Task]:
         """Background, failure-tolerant (see warmup.py): so the first real turn finds everything open."""
         tts = get_tts_client()
         # the company vocabulary for the STT now, not when the caller first speaks
-        tasks = [asyncio.create_task(warmup.safely("stt hint", stt_hint(get_stt_client().name, None)))]
+        tasks = [
+            asyncio.create_task(warmup.safely("stt hint", stt_hint(get_stt_client().name, None, self.conversation.client_id if self.conversation else None))),
+            asyncio.create_task(warmup.safely("lexicon", lexicon_store.catalogue())),  # so the first turn's resolver is ready (no wait at turn start)
+        ]
         if llm.provider != "mock" or tts.name != "mock":
-            actor = self.conversation.actor_name if self.conversation else None
-            tasks.append(asyncio.create_task(warmup.warm_up(llm, tts, all_tools(), actor)))
+            tasks.append(asyncio.create_task(self.warm_all(llm, tts)))
         if llm.provider != "mock":  # prompt cache keep-alive while the session is open
             tasks.append(
-                asyncio.create_task(warmup.keep_warm(llm, all_tools, lambda: self.conversation.actor_name if self.conversation else None))
+                asyncio.create_task(
+                    warmup.keep_warm(
+                        llm, all_tools, lambda: self.conversation.actor_name if self.conversation else None,
+                        identity=lambda: (self.conversation.caller, self.conversation.session_block) if self.conversation else (UNKNOWN, None),
+                    )
+                )
             )
         return tasks
 
@@ -221,6 +293,7 @@ class VoiceConnection:
         heard, spoken = "", ""
         step_text = ""  # what the model said since the last tool result (not yet in `working`)
         working: list[ChatMessage] | None = None
+        base: list[ChatMessage] | None = None  # the history object `working` was built from (memory.commit)
         committed = False
         speaker: Speaker | None = None
         try:
@@ -234,11 +307,26 @@ class VoiceConnection:
                 return
             await self.send(TranscriptMessage(text=heard, final=True))
 
-            # 2. Agent, on a working copy of the history (committed at the end)
-            working = [*conv.history, ChatMessage(role="user", content=heard)]
+            # 1b. Likely a tool turn (stock, price, order…): the filler starts NOW, in parallel with the lexicon + model call
             speaker = Speaker(get_tts_client(), self.send, self.send_bytes)
+            if turn_hints.should_prefill(heard, self.since_filler()):
+                self.play_filler(speaker)
+
+            # 2. Agent, on a working copy of the history (committed at the end).
+            # Spoken turn: the lexicon's near-miss / ambiguity block goes at the END of the user message (the cached prefix is untouched);
+            # the raw transcript is what the caller sees and what the history keeps first. Never rewrites what was heard.
+            content = heard
+            if utterance is not None:
+                lexicon_start = time.perf_counter()
+                lexicon_hints = await annotate(heard, conv.client_id) if conv.caller.role != "unknown" else ""  # an unidentified caller gets no name hints
+                if lexicon_hints:
+                    content = f"{heard}\n\n{lexicon_hints}"
+                    print(f"[lexicon] {ms_since(lexicon_start)}ms, caller={conv.client_id}: {lexicon_hints.splitlines()[1:]}", flush=True)
+            base = conv.history
+            working = [*base, ChatMessage(role="user", content=content)]
+            session_block = await self.freeze_block(conv)
             llm_start = time.perf_counter()
-            async for ev in run_agent(working, llm=llm, tools=all_tools(), mode="voice", actor_name=conv.actor_name):
+            async for ev in run_agent(working, llm=llm, tools=all_tools(), mode="voice", actor_name=conv.actor_name, caller=conv.caller, session_block=session_block, announce_tools=True):
                 match ev:
                     case TextEvent(delta=delta):
                         if timings.llm_first_token_ms is None:
@@ -247,12 +335,19 @@ class VoiceConnection:
                         step_text += delta
                         await self.send(AgentTextMessage(delta=delta))
                         speaker.push(delta)
+                    case ToolStartEvent(name=name):  # the model began a tool call: the name is known, the arguments are still streaming
+                        if timings.first_tool_call_ms is None:
+                            timings.first_tool_call_ms = ms_since(llm_start)
+                        self.before_tool(speaker)
+                        await self.send(AgentToolMessage(name=name))  # the UI shows the tool now; the arguments follow with the call
                     case ToolCallEvent(call=call):
                         if timings.first_tool_call_ms is None:
                             timings.first_tool_call_ms = ms_since(llm_start)
-                        speaker.flush()  # what the model said before the tool is complete: speak it now, not after the tools
-                        if not speaker.queued:  # nothing to hear yet: a canned wait phrase instead of silence
-                            speaker.say_filler()
+                        if conv.caller.internal and (caller := caller_of(call.name, call.arguments)):  # a declared client keeps its own id; an unidentified caller never steers the lexicon
+                            if caller != conv.client_id:
+                                conv.client_id = caller  # identified: the next utterance gets this client's terms first
+                                lexicon_store.prefetch(caller)
+                        self.before_tool(speaker)  # (no-op when ToolStartEvent already did it)
                         await self.send(AgentToolMessage(name=call.name, args=call.arguments))
                     case ToolResultEvent(name=name, ok=ok, ms=ms):
                         step_text = ""
@@ -263,7 +358,8 @@ class VoiceConnection:
                         await self.send(VoiceErrorMessage(message=message))
             timings.llm_total_ms = ms_since(llm_start)
             warmup.touch()  # the model call just read the prompt cache: its 5-minute TTL restarted
-            conv.history = trim(working)
+            memory.commit(conv, base, working, conversations)  # history + write-through to the session store (services/memory.py)
+            memory.background(memory.compact_later(conv, llm, conversations))  # old turns → one summary, off the critical path
             committed = True
 
             # 3. Speak the last sentence and wait until all the audio is sent
@@ -288,7 +384,7 @@ class VoiceConnection:
                 last = kept[-1]
                 if step_text.strip() and not (last.role == "assistant" and last.tool_calls):
                     kept = [*kept, ChatMessage(role="assistant", content=f"{step_text.strip()} …")]
-                conv.history = trim(kept)
+                memory.commit(conv, base if base is not None else conv.history, kept, conversations)
             if speaker:
                 await speaker.stop()
             raise
@@ -376,8 +472,12 @@ class Speaker:
         self.speak(self.buffer)
         self.buffer = ""
 
+    filler_queued = False  # a filler is in this turn's queue (the model's own text before its first tool call is then dropped, never doubled)
+    tool_seen = False  # the first tool call of the turn has been handled (VoiceConnection.before_tool)
+
     def say_filler(self) -> None:
         """A short varied wait phrase: the pre-synthesised mp3 when cached (no TTS call), else synthesised on the spot."""
+        self.filler_queued = True
         pick = warmup.choose_filler(warmup.cached_fillers(self.tts))
         if isinstance(pick, str):
             self.speak(pick, "filler")

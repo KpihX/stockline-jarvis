@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { Button, IconButton, Kbd, Spinner } from "@/ui";
 import { shell } from "@/app/shell-state";
 import { useAiHealth } from "./ai-client";
+import { CallerBadge } from "./CallerBadge";
 import { chat, useChat, type ChatItem } from "./chat-store";
 import { Markdown } from "@/ui/markdown";
 import { ToolRow } from "./tools";
@@ -75,6 +76,7 @@ export function AssistantPanel() {
         <div className="min-w-0 flex-1 truncate pl-1 font-mono text-[10.5px] text-muted-foreground" title={llm ? `${llm.provider} · ${llm.model ?? ""}` : undefined}>
           {down ? <span className="text-destructive">hors ligne</span> : llm ? `${llm.provider}${llm.model ? ` · ${llm.model}` : ""}` : ""}
         </div>
+        <CallerBadge />
         {items.length ? <IconButton icon={RotateCcw} label="Nouvelle conversation" size="sm" onClick={() => { chat.reset(); inputRef.current?.focus(); }} /> : null}
         <Kbd>⌘J</Kbd>
         <IconButton icon={X} label="Fermer" size="sm" onClick={shell.closeAssistant} />

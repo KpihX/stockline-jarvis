@@ -26,6 +26,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 from pydantic.alias_generators import to_camel
 
+from app.policy import UNKNOWN, Caller
 from app.schemas import ToolInfo
 
 from .erp import Actor, ErpClient
@@ -35,6 +36,8 @@ from .erp import Actor, ErpClient
 class ToolContext:
     erp: ErpClient  # HTTP client for the ERP API, already tagged with x-actor
     actor: Actor  # "ai_chat" (web chat) or "voice_agent" (phone / voice commands)
+    messages: list | None = None  # the conversation so far (ChatMessage list): tools that must check what was REALLY said (learn_term) read it
+    caller: Caller = UNKNOWN  # who is on the line (declared identity, app/policy.py): the harness enforces it before a tool runs; tools use it for provenance
 
 
 class ToolArgs(BaseModel):

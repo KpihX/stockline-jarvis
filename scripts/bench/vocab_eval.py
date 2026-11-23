@@ -55,6 +55,24 @@ NEGATIVES = [
     "Je suis au bout du fil depuis cinq minutes, pouvez-vous me passer le commercial ?",
 ]
 
+# Invented AFTER the resolver was tuned, never looked at while tuning: plausible STT slips on catalogue items (hypothesis, expected entity words).
+HELD_OUT = [
+    ("du Bofort d'alpage pour demain", "beaufort d alpage"),
+    ("des crozés au sarrasin", "crozets"),
+    ("du saint Marcelain bien coulant", "marcellin"),
+    ("une raclète tranchée", "raclette tranchee"),
+    ("Ici la fondue de Taillefère", "fondue de taillefer"),
+    ("Le Bivouaque à l'appareil", "bivouac"),
+    ("La grange à Émily, bonjour", "grange a emilie"),
+    ("Chez Amadoux, il me faut de la bavète", "chez amadou"),
+    ("des cerneau de noix de Grenoble", "cerneaux"),
+    ("du bleu du Vercor Sassenage", "bleu du vercors"),
+    ("deux saucissons secs de montagne", "saucisson sec"),
+    ("de la viande séchée des Alpes tranché", "viande sechee"),
+    ("trois kilos de poitrine fumé", "poitrine fumee"),
+    ("une tarte aux mirtilles", "myrtilles"),
+]
+
 ENGINES = [("soniox-plain", "soniox"), ("soniox-vocab", "soniox"), ("whisper-v3", "nvidia"), ("parakeet", "nvidia")]
 
 
@@ -64,12 +82,14 @@ def get(path: str, **params):
     return r.json()
 
 
-def forms_of(c) -> set[str]:
-    return {norm(c.entry.form), norm(c.entry.label)}
+def singular(s: str) -> str:
+    return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in norm(s).split())
 
 
 def covers(candidate, entity: str) -> bool:
-    return any(f" {entity}" in f" {form}" or f" {entity} " in f" {form} " for form in forms_of(candidate))
+    """The candidate's form or label contains the expected entity words (plural marks ignored)."""
+    e = singular(entity)
+    return any(f" {e}" in f" {singular(form)} " for form in (candidate.entry.form, candidate.entry.label))
 
 
 def client_of(text: str, clients: list[dict]) -> dict | None:
@@ -85,6 +105,11 @@ def main() -> None:
     refs = [client_of(text, clients) for text, _ in CORPUS]
     sheets = {c["id"]: get(f"/api/clients/{c['id']}") for c in {r["id"]: r for r in refs if r}.values()}
     lexicons = {cid: build_client(s, cat, []) for cid, s in sheets.items()}
+    # truth = every entity that the REFERENCE sentence names exactly (what a perfect transcript would resolve to)
+    truths = []
+    for (text, _), ref in zip(CORPUS, refs):
+        ixs = [cat.index] + ([lexicons[ref["id"]].index] if ref else [])
+        truths.append({c.entry.entity for m in resolve(text, ixs, scope=ref["id"] if ref else None) if m.status == "exact" for c in m.candidates})
 
     def run(text: str, i: int, mode: str, learned: list[Learned] | None = None):
         ref = refs[i] if i is not None and i < len(refs) else None
@@ -103,14 +128,15 @@ def main() -> None:
         for mode in ("A", "B", "C"):
             sure = maybe = 0
             spurious_resolved = spurious_ambiguous = 0
-            wrong_sentences = 0
+            wrong_sentences = redundant = 0
             for r in rows:
                 learned: list[Learned] = []
                 ms = run(r["hyp"], r["i"], "B")  # pass 1 (also used to know what a caller would have confirmed)
                 if mode == "C" and refs[r["i"]]:
-                    for m in ms:
-                        if m.status == "resolved" and any(covers(m.best, e) for e in r["hits"]):
-                            c = m.best.entry
+                    for m in ms:  # the caller confirmed the proposal (resolved) or picked among the candidates (ambiguous) in an earlier call
+                        right = next((c for c in m.candidates if m.status != "exact" and any(not ok and covers(c, norm(e)) for e, ok in r["hits"].items())), None)
+                        if right:
+                            c = right.entry
                             learned.append(Learned(m.surface, c.etype, c.eid, c.label, refs[r["i"]]["id"], source="confirmed"))
                 t = time.perf_counter()
                 ms = run(r["hyp"], r["i"], mode if mode != "C" else "B", learned or None)
@@ -126,28 +152,39 @@ def main() -> None:
                         maybe += 1
                     elif any(m.status == "ambiguous" and any(covers(c, norm(e)) for c in m.candidates) for m in ms):
                         maybe += 1
+                    elif mode in ("B", "C") and os.environ.get("VERBOSE"):
+                        print(f"  [{name}/{mode}] still missed: {e!r} in: {r['hyp'][:90]}")
+                truth = truths[r["i"]]
                 for m in ms:
                     if m.status == "exact":
                         continue
-                    useful = any(not ok and any(covers(c, norm(e)) for c in m.candidates) for e, ok in r["hits"].items())
-                    if not useful:
-                        bad_here = True
-                        if m.status == "resolved":
-                            spurious_resolved += 1
-                            print(f"  [{name}/{mode}] spurious RESOLVED  « {m.surface} » → {m.best.entry.label} ({m.best.score:.2f}) in: {r['hyp'][:70]}")
-                        else:
-                            spurious_ambiguous += 1
+                    if any(not ok and any(covers(c, norm(e)) for c in m.candidates) for e, ok in r["hits"].items()):
+                        continue  # a correction of a missed entity
+                    pool = [m.best] if m.status == "resolved" else m.candidates
+                    if any(c.entry.entity in truth for c in pool):
+                        redundant += 1  # right entity proposed for words that were already right (plural, article…): harmless
+                        continue
+                    bad_here = True
+                    if m.status == "resolved":
+                        spurious_resolved += 1
+                        print(f"  [{name}/{mode}] WRONG resolved « {m.surface} » → {m.best.entry.label} ({m.best.score:.2f}) in: {r['hyp'][:80]}")
+                    else:
+                        spurious_ambiguous += 1
+                        print(f"  [{name}/{mode}] wrong ambiguous « {m.surface} » → {' | '.join(c.entry.label for c in m.candidates[:3])} in: {r['hyp'][:80]}")
                 wrong_sentences += bad_here
-            line[mode] = (sure, maybe, spurious_resolved, spurious_ambiguous, wrong_sentences)
+            line[mode] = (sure, maybe, spurious_resolved, spurious_ambiguous, wrong_sentences, redundant)
         results[name] = (total, line)
 
-    print(f"\n{'engine':14}{'raw':>9}{'A sure':>9}{'A +amb':>9}{'B sure':>9}{'B +amb':>9}{'C sure':>9}{'C +amb':>9}   spurious resolved / ambiguous (A,B,C)")
+    print(f"\n{'engine':14}{'raw':>9}{'A sure':>9}{'A +amb':>9}{'B sure':>9}{'B +amb':>9}{'C sure':>9}{'C +amb':>9}   wrong resolved/ambiguous (A  B  C)   harmless-redundant (A)")
     for name, (total, ln) in results.items():
         cells = "".join(f"{ln[m][i]:>6}/{total:<2}" for m in "ABC" for i in (0, 1))
         sp = "  ".join(f"{ln[m][2]}/{ln[m][3]}" for m in "ABC")
-        print(f"{name:14}{ln['raw']:>6}/{total:<2}{cells}   {sp}")
+        print(f"{name:14}{ln['raw']:>6}/{total:<2}{cells}   {sp}   {ln['A'][5]}")
     n_sent = len(CORPUS)
-    print(f"\nspurious = proposals that do not correct a missed entity, over {n_sent} sentences per engine ({n_sent * len(ENGINES)} transcripts).")
+    print(
+        f"\nwrong = a proposal that neither corrects a missed entity nor names an entity of the reference sentence, over {n_sent} sentences per engine "
+        f"({n_sent * len(ENGINES)} transcripts)."
+    )
 
     # negatives: nothing should be proposed
     neg_res = neg_amb = 0
@@ -166,6 +203,16 @@ def main() -> None:
             if m.status == "resolved" and not any(m2.surface == m.surface for m2 in resolve(s, [cat.index]) if m2.status == "resolved"):
                 print(f"  [negative+client {cl.name}] RESOLVED « {m.surface} » → {m.best.entry.label} ({m.best.score:.2f})")
     print(f"negative sentences ({len(NEGATIVES)}): resolved={neg_res} ambiguous={neg_amb} (global lexicon)")
+    raw_ok = sure = maybe = 0
+    for hyp, e in HELD_OUT:
+        ms = resolve(hyp, [cat.index])
+        raw_ok += f" {singular(e)}" in f" {singular(hyp)}"
+        hit = any(m.status in ("exact", "resolved") and covers(m.best, e) for m in ms)
+        sure += hit
+        maybe += hit or any(m.status == "ambiguous" and any(covers(c, e) for c in m.candidates) for m in ms)
+        if not hit:
+            print(f"  [held-out] not resolved: {hyp!r} → {[(m.surface, m.status, m.best.entry.label) for m in ms]}")
+    print(f"held-out invented slips ({len(HELD_OUT)}, not tuned on): raw {raw_ok} → resolved {sure} → with ambiguous candidates {maybe}")
     print(f"latency per sentence: median {statistics.median(all_ms):.2f} ms, p95 {sorted(all_ms)[int(len(all_ms) * 0.95)]:.2f} ms, max {max(all_ms):.2f} ms ({len(all_ms)} calls)")
 
 

@@ -8,11 +8,18 @@ from typing import Literal
 
 from pydantic import Field
 
-from .history import without_none
+from app.lexicon.config import VOCAB_TAG
+
+from .history import UNVERIFIED, provenance_tags, without_none
 from .registry import ToolContext, tool
 
 EntityType = Literal["company", "client", "supplier", "product", "category"]
 Kind = Literal["policy", "procedure", "preference", "fact", "relationship", "pricing", "logistics", "risk"]
+
+
+def is_vocab(e: dict) -> bool:
+    """Learned vocabulary rows (lexicon/learned.py) are machine notes for the resolver: never shown to the model through the context tools."""
+    return VOCAB_TAG in (e.get("tags") or [])
 
 
 def clip(s: str, n: int) -> str:
@@ -49,7 +56,7 @@ async def search_context(
     """
     query_params = {"q": query, "entityType": entity_type, "entityId": entity_id, "kind": kind, "limit": int(limit or 6)}
     rows = await ctx.erp.get("/api/context", query_params)
-    return [compact(e, 500) for e in rows]
+    return [compact(e, 500) for e in rows if not is_vocab(e)]
 
 
 @tool
@@ -66,8 +73,8 @@ async def get_context(
     r = await ctx.erp.get("/api/context/for", {"entityType": entity_type, "id": id})
     return {
         "about": r.get("label"),
-        "entries": [compact(e) for e in r["entries"]],
-        "related": [compact(e, 400) for e in r["related"]],
+        "entries": [compact(e) for e in r["entries"] if not is_vocab(e)],
+        "related": [compact(e, 400) for e in r["related"] if not is_vocab(e)],
     }
 
 
@@ -86,6 +93,8 @@ async def save_context(
     pour que l'équipe et les prochains appels le sachent. Pas pour une réclamation ou un incident (utilise log_client_event).
     Formule-le en une phrase claire, sans inventer. Remember a durable fact.
     """
-    entry = {"entityType": entity_type, "entityId": entity_id, "kind": kind, "title": title, "body": body, "tags": tags}
+    if ctx.caller.role == "client":  # a declared client's word about itself: kept, but worded as a claim (the context table has no "verified" field)
+        title, body = (title if title.startswith(UNVERIFIED) else f"{UNVERIFIED}{title}"), f"Le client affirme : {body}"
+    entry = {"entityType": entity_type, "entityId": entity_id, "kind": kind, "title": title, "body": body, "tags": [*(t for t in tags or [] if t != VOCAB_TAG), *provenance_tags(ctx)]}  # VOCAB_TAG is the lexicon's own: never writable here
     e = await ctx.erp.post("/api/context", without_none(entry))
     return {"id": e["id"], "saved": True, "title": e.get("title")}

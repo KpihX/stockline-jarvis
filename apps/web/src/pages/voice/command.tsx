@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { HOLD_TO_TALK_ATTR, useHoldPointer, useSpaceHold } from "@/lib/hold-to-talk";
 import { Button, Dot, EmptyState, IconButton, Input, Kbd, Page, PageHeader, SECTION_LABEL, Spinner } from "@/ui";
 import { useAiHealth } from "@/features/assistant/ai-client";
+import { CallerBadge } from "@/features/assistant/CallerBadge";
 import {
   clearCommandHistory, COMMAND_METRICS, LevelMeter, metricValue, MsChip, RunBody, RunChips, sendCommandText, setSpeak,
   startCommand, stopCommand, stopSpeaking, useVoiceCommand, VOICE_COMMAND_HOW, type CommandRun, type CommandState,
@@ -65,6 +66,7 @@ export function CommandMode({ modeSwitch }: { modeSwitch: ReactNode }) {
                 <ProviderChip k="tts" v={p.tts.provider} />
               </div>
             ) : null}
+            <CallerBadge />
             <Button size="sm" variant="ghost" icon={s.speak ? Volume2 : VolumeX} onClick={() => setSpeak(!s.speak)} aria-pressed={s.speak}>
               {s.speak ? "Réponse vocale" : "Réponse muette"}
             </Button>

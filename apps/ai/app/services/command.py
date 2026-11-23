@@ -27,6 +27,7 @@ from app.agent import run_agent
 from app.agent.loop import ms_since
 from app.clients import get_llm_client, get_stt_client, get_tts_client
 from app.config import settings
+from app.policy import Caller
 from app.schemas import (
     ChatMessage,
     CommandStreamEvent,
@@ -89,6 +90,7 @@ async def run_command(
     hint: str | None = None,  # STT vocabulary hint (mock STT: the transcript)
     actor_name: str = "Commande vocale",
     speak: bool = False,
+    caller: Caller | None = None,  # DECLARED identity (app/policy.py); None = unknown
 ) -> AsyncIterator[CommandStreamEvent]:
     t0 = time.perf_counter()
     timings = TurnTimings()
@@ -117,7 +119,7 @@ async def run_command(
     last_entity: Entity | None = None
     done: DoneEvent | None = None
     messages = [ChatMessage(role="user", content=text)]
-    async for ev in run_agent(messages, llm=get_llm_client(), tools=all_tools(), mode="command", actor_name=actor_name):
+    async for ev in run_agent(messages, llm=get_llm_client(), tools=all_tools(), mode="command", actor_name=actor_name, caller=caller):
         if isinstance(ev, TextEvent):
             if timings.llm_first_token_ms is None:
                 timings.llm_first_token_ms = ms_since(llm_start)
@@ -161,13 +163,14 @@ async def run_command(
 command_message = TypeAdapter(VoiceClientMessage)
 
 
-async def serve_command_ws(ws: WebSocket, speak: bool = False) -> None:
+async def serve_command_ws(ws: WebSocket, speak: bool = False, caller: Caller | None = None) -> None:
     """
     WS /voice/command[?speak=1]: the same single command, with the audio streamed while the key is down.
 
         → audio_start {mime, hint?} · binary frames (every 100–250 ms) · audio_end      (or one `text` message)
         ← transcript {final: false, stable} … while speaking, then the POST /command events (transcript final, …, done)
 
+    The declared identity comes from the connection URL: ?role=…&clientId=cli_…&actorName=… (default unknown).
     One command per connection: the server closes it after `done` / `error`. Closing it earlier cancels the command
     (and the provider's STT stream).
     """
@@ -178,7 +181,7 @@ async def serve_command_ws(ws: WebSocket, speak: bool = False) -> None:
             await ws.send_text(event.to_json())
 
     async def answer(**command_input) -> None:
-        async with aclosing(run_command(speak=speak, **command_input)) as events:
+        async with aclosing(run_command(speak=speak, caller=caller, **command_input)) as events:
             async for event in events:
                 await send(event)
         with suppress(RuntimeError):

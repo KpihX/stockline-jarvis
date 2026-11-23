@@ -9,6 +9,7 @@ from app.agent import loop as agent_loop
 from app.clients import LLMClient, LLMRequest, LLMText, LLMToolCall, LLMUsage
 from app.clients.base import TTSClient, TTSResult
 from app.pricing import estimate_cost, llm_usd
+from app.policy import Caller
 from app.schemas import ToolCall, Usage
 from app.services import voice_session, warmup
 from app.services.voice_session import Speaker, early_cut
@@ -155,7 +156,7 @@ async def _lookup(ctx):
 
 @pytest.fixture
 def session(monkeypatch):
-    async def prompt(mode, actor_name=None):
+    async def prompt(mode, actor_name=None, caller=None):
         return "SYS"
 
     monkeypatch.setattr(agent_loop, "build_system_prompt", prompt)
@@ -166,7 +167,7 @@ def session(monkeypatch):
 
     def make(steps):
         monkeypatch.setattr(voice_session, "get_llm_client", lambda: ScriptedLLM(steps))
-        return voice_session.VoiceConnection(FakeWS()), voice_session.Conversation(id="t"), tts
+        return voice_session.VoiceConnection(FakeWS()), voice_session.Conversation(id="t", caller=Caller("direction")), tts
 
     return make
 
@@ -237,7 +238,7 @@ async def test_prime_llm_sends_the_real_prefix_with_max_tokens_1_and_is_throttle
             seen.append(request)
             yield LLMUsage(5, 1, cache_creation_input_tokens=0, cache_read_input_tokens=9000)
 
-    async def prompt(mode, actor_name=None):
+    async def prompt(mode, actor_name=None, caller=None):
         return f"SYS {mode} {actor_name}"
 
     monkeypatch.setattr(warmup, "build_system_prompt", prompt)
@@ -264,7 +265,7 @@ async def test_warm_up_failures_never_escape(monkeypatch):
         async def synthesize(self, text, voice=None):
             raise RuntimeError("tts down")
 
-    async def prompt(mode, actor_name=None):
+    async def prompt(mode, actor_name=None, caller=None):
         return "SYS"
 
     monkeypatch.setattr(warmup, "build_system_prompt", prompt)

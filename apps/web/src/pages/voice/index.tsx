@@ -13,6 +13,7 @@ import { MicOff, Mic, RotateCcw, Send, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { HOLD_TO_TALK_ATTR, useHoldPointer, useSpaceHold } from "@/lib/hold-to-talk";
 import { Button, Dot, IconButton, Input, Kbd, Page, PageHeader, Spinner, Tabs } from "@/ui";
+import { CallerBadge } from "@/features/assistant/CallerBadge";
 import { useVoiceSession, type Activity, type Conn } from "@/features/assistant/useVoiceSession";
 import { CommandMode } from "./command";
 import { LiveActivity } from "./live-activity";
@@ -68,6 +69,7 @@ function CallMode({ modeSwitch }: { modeSwitch: ReactNode }) {
                 <Provider k="tts" v={v.providers.tts} />
               </div>
             ) : null}
+            <CallerBadge effectiveRole={v.effectiveRole} />
             {v.activity === "speaking" ? <Button size="sm" variant="ghost" icon={VolumeX} kbd="Échap" onClick={v.stopPlayback}>Couper</Button> : null}
             <Button size="sm" icon={RotateCcw} onClick={v.reset} disabled={!ready}>Nouvelle session</Button>
           </>

@@ -57,8 +57,9 @@ async def lifespan(_: FastAPI):
 def warm_up() -> None:
     """Build the derived indexes once at boot (movement index, sorted lists, stock levels) so the first
     list request after a start doesn't pay for them."""
-    from app.services import dashboard, invoices, orders, stock
+    from app.services import dashboard, invoices, orders, plausibility, stock
 
+    plausibility.history()
     stock.list_movements(limit=1)
     orders.orders_newest_first()
     invoices.list_invoices(ListQuery(limit=1))

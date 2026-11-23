@@ -8,8 +8,8 @@ Differences with OpenAI:
   - recent Claude models think: their `thinking` blocks must be sent back unchanged with the
     assistant turn that called tools, so we remember them by tool-call id.
 
-Prompt caching: the prefix tools → system → messages is cached with 3 `cache_control` breakpoints
-(last tool, system block, last block of the last message), so the next model call of the same turn
+Prompt caching: the prefix tools → system → messages is cached with up to 4 `cache_control` breakpoints
+(last tool, system block, per-session system suffix when there is one, last block of the last message), so the next model call of the same turn
 (after a tool) and the next turn re-read it at ~10% of the price. The prefix must stay byte-identical:
 tools in a fixed order, no timestamp / id in the system prompt, thinking blocks replayed unchanged.
 Hits show up as `cache_read_input_tokens` in the usage.
@@ -21,10 +21,10 @@ import httpx
 
 from app.schemas import ChatMessage, ToolCall
 
-from .base import LLMClient, LLMEvent, LLMRequest, LLMText, LLMToolCall, LLMUsage
+from .base import LLMClient, LLMEvent, LLMRequest, LLMText, LLMToolCall, LLMToolStart, LLMUsage
 from .http import ProviderError, http_client, parse_args, post_stream, sse_json
 
-CACHE = {"type": "ephemeral"}  # 5-minute prompt cache breakpoint (max 4 per request; we use 3)
+CACHE = {"type": "ephemeral"}  # 5-minute prompt cache breakpoint (max 4 per request; we use up to 4)
 
 # thinking blocks of an assistant turn, keyed by the id of its first tool call
 _thinking_by_call: dict[str, list[dict]] = {}
@@ -54,6 +54,8 @@ class AnthropicLLM(LLMClient):
         }
         if req.system:  # a list of blocks so it can carry a cache breakpoint
             body["system"] = [{"type": "text", "text": req.system, "cache_control": CACHE}]
+            if req.system_suffix:  # per-session tail (identity, client sheet): its own breakpoint, the shared block above is still read by everyone
+                body["system"].append({"type": "text", "text": req.system_suffix, "cache_control": CACHE})
         if self.effort:
             body["output_config"] = {"effort": self.effort}
         if req.tools:
@@ -75,6 +77,8 @@ class AnthropicLLM(LLMClient):
                     usage.update((ev.get("message") or {}).get("usage") or {})
                 case "content_block_start":
                     blocks[ev["index"]] = {**ev["content_block"], "_json": ""}
+                    if ev["content_block"].get("type") == "tool_use":  # the name is known now, the arguments are still streaming
+                        yield LLMToolStart(ev["content_block"]["name"], ev["content_block"].get("id", ""))
                 case "content_block_delta":
                     b, d = blocks.get(ev["index"]), ev["delta"]
                     if d["type"] == "text_delta":
@@ -89,6 +93,9 @@ class AnthropicLLM(LLMClient):
                     b = blocks.get(ev["index"])
                     if b and b.get("type") == "tool_use":
                         tool_calls.append({"id": b["id"], "name": b["name"], "args": b["_json"]})
+                        # complete arguments: hand the call over now, not when the whole message ends (the thinking blocks are
+                        # remembered below, before the loop can build the next request: it only does so after the stream is over)
+                        yield LLMToolCall(ToolCall(id=b["id"], name=b["name"], arguments=parse_args(b["_json"])))
                 case "message_delta":
                     if ev.get("usage"):
                         usage.update({k: v for k, v in ev["usage"].items() if v is not None})
@@ -108,8 +115,6 @@ class AnthropicLLM(LLMClient):
         ]
         if tool_calls and thinking:
             _thinking_by_call[tool_calls[0]["id"]] = thinking
-        for tc in tool_calls:
-            yield LLMToolCall(ToolCall(id=tc["id"], name=tc["name"], arguments=parse_args(tc["args"])))
 
 
 def to_anthropic_messages(messages: list[ChatMessage]) -> list[dict]:

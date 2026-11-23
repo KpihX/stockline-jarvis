@@ -6,6 +6,7 @@ JSON is camelCase; Python attributes are snake_case. Everything here is publishe
 """
 
 from .chat import (
+    CallerRole,
     ChatMessage,
     ChatMode,
     ChatRequest,
@@ -17,6 +18,7 @@ from .chat import (
     ToolCallEvent,
     ToolInfo,
     ToolResultEvent,
+    ToolStartEvent,
     TurnCost,
     TurnTimings,
     Usage,

@@ -18,8 +18,9 @@ import time
 import traceback
 from collections.abc import AsyncIterator
 
-from app.clients import LLMClient, LLMRequest, LLMText, LLMToolCall, LLMUsage
+from app.clients import LLMClient, LLMRequest, LLMText, LLMToolCall, LLMToolStart, LLMUsage
 from app.config import settings
+from app.policy import UNKNOWN, AccessDenied, Caller
 from app.schemas import (
     ChatMessage,
     ChatMode,
@@ -30,11 +31,13 @@ from app.schemas import (
     ToolCall,
     ToolCallEvent,
     ToolResultEvent,
+    ToolStartEvent,
     Usage,
 )
 from app.tools import ErpClient, Tool, ToolContext
 
-from .prompts import build_system_prompt
+from .access import enforce, guard_result
+from .prompts import build_session_block, build_system_prompt
 
 GIVE_UP = "Désolé, je n'ai pas réussi à aller au bout. Pouvez-vous reformuler ?"
 
@@ -47,15 +50,20 @@ async def run_agent(
     mode: ChatMode = "chat",  # command = single turn, act-first
     actor_name: str | None = None,
     max_steps: int | None = None,
-) -> AsyncIterator[ChatStreamEvent]:
+    caller: Caller | None = None,  # WHO is on the line (declared identity). None = unknown: the safest role, enforced by app/policy.py
+    session_block: str | None = None,  # the per-session prompt tail if the caller already built (and froze) it, else it is built here
+    announce_tools: bool = False,  # also yield a ToolStartEvent as soon as the model starts a tool call (voice session: filler without waiting for the arguments)
+) -> AsyncIterator[ChatStreamEvent | ToolStartEvent]:
     started = time.perf_counter()
     actor = "ai_chat" if mode == "chat" else "voice_agent"
-    ctx = ToolContext(erp=ErpClient(actor, actor_name), actor=actor)
+    who = caller or UNKNOWN
+    ctx = ToolContext(erp=ErpClient(actor, who.erp_name if caller else actor_name), actor=actor, messages=messages, caller=who)
     usage = Usage(input_tokens=0, output_tokens=0)
 
     try:
-        system = await build_system_prompt(mode, actor_name)
-        request = LLMRequest(system=system, messages=messages, tools=[t.info for t in tools])
+        system = await build_system_prompt(mode, actor_name, who)
+        suffix = session_block if session_block is not None else await build_session_block(who)
+        request = LLMRequest(system=system, messages=messages, tools=[t.info for t in tools], system_suffix=suffix)
         said_something = False
 
         for _step in range(max_steps or settings.max_steps):
@@ -69,6 +77,9 @@ async def run_agent(
                         shown = f" {delta}" if said_something and not text and not delta[:1].isspace() else delta
                         text += delta
                         yield TextEvent(delta=shown)
+                    case LLMToolStart(name=name, id=call_id):
+                        if announce_tools:
+                            yield ToolStartEvent(name=name, call_id=call_id)
                     case LLMToolCall(call=call):
                         calls.append(call)
                         yield ToolCallEvent(call=call)
@@ -113,12 +124,16 @@ async def execute_tool(call: ToolCall, tools: list[Tool], ctx: ToolContext) -> T
     try:
         if not tool:
             raise LookupError(f"Outil inconnu : {call.name}")
-        result = await tool.run(call.arguments, ctx)
+        await enforce(tool, call.arguments, ctx)  # the access policy: before anything runs, whatever the model was told or claims
+        result = guard_result(ctx, call.name, await tool.run(call.arguments, ctx))
         try:  # a value the model can't read back (datetime, set, object…) is the tool's error, not the turn's
             to_json(result)
         except (TypeError, ValueError) as e:
             raise TypeError(f"résultat de {call.name} non sérialisable en JSON : {e}") from e
         ok = True
+    except AccessDenied as e:  # not a failure: the role may not do this. The sentence is for the model to say.
+        print(f"[access] refusé role={ctx.caller.role} client={ctx.caller.client_id} outil={call.name} : {e}", flush=True)
+        ok, result = False, {"error": str(e), "denied": True}
     except Exception as e:
         print(f"[tool {call.name}] erreur :", flush=True)
         traceback.print_exc()

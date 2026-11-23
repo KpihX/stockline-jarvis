@@ -11,12 +11,14 @@ from typing import Annotated, Literal, Union
 from pydantic import Field
 
 from .base import WireModel
-from .chat import DoneEvent, ErrorEvent, TextEvent, ToolCallEvent, ToolResultEvent
+from .chat import CallerRole, DoneEvent, ErrorEvent, TextEvent, ToolCallEvent, ToolResultEvent
 
 
 class CommandRequest(WireModel):
     text: str
     actor_name: str | None = None
+    role: CallerRole | None = None  # declared role (default unknown), see ChatRequest; raw-audio bodies use the x-caller-role header
+    client_id: str | None = None  # cli_… (role client), x-caller-client-id header for raw audio
 
 
 class TranscriptEvent(WireModel):

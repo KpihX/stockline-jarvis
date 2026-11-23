@@ -3,6 +3,7 @@ Chat with the agent in the terminal — the same agent as POST /chat and WS /voi
 
     uv run python -m app.cli            (chat mode)
     uv run python -m app.cli --voice    (short spoken-style answers)
+    uv run python -m app.cli --role client --client cli_0082   (talk as another identity: unknown | client | sales | direction)
 
 Commands: /reset clears the conversation, /exit quits.
 """
@@ -13,6 +14,7 @@ import sys
 
 from app.agent import run_agent
 from app.clients import get_llm_client
+from app.policy import Caller
 from app.schemas import ChatMessage, DoneEvent, ErrorEvent, TextEvent, ToolCallEvent, ToolResultEvent
 from app.tools import all_tools
 
@@ -23,6 +25,9 @@ def dim(s: str) -> str:
 
 async def main() -> None:
     mode = "voice" if "--voice" in sys.argv else "chat"
+    # The terminal is the operator's: management access unless told otherwise (--role unknown | client --client cli_0082 | sales | direction)
+    arg = lambda name, default=None: next((sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == name), default)  # noqa: E731
+    caller = Caller.declare(arg("--role", "direction"), arg("--client"), "CLI")
     llm = get_llm_client()
     messages: list[ChatMessage] = []
     print(dim(f"llm={llm.provider}:{llm.model} mode={mode} — /reset, /exit"))
@@ -41,7 +46,7 @@ async def main() -> None:
             continue
         messages.append(ChatMessage(role="user", content=line))
         print("agent › ", end="", flush=True)
-        async for ev in run_agent(messages, llm=llm, tools=all_tools(), mode=mode, actor_name="CLI"):
+        async for ev in run_agent(messages, llm=llm, tools=all_tools(), mode=mode, actor_name="CLI", caller=caller):
             match ev:
                 case TextEvent(delta=delta):
                     print(delta, end="", flush=True)

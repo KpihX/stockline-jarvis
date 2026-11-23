@@ -37,7 +37,7 @@ class OpenAILLM(LLMClient):
         body: dict = {
             "model": self.model,
             "stream": True,
-            "messages": [{"role": "system", "content": req.system}, *map(to_openai_message, req.messages)],
+            "messages": [{"role": "system", "content": req.full_system}, *map(to_openai_message, req.messages)],
         }
         if req.tools:
             body["tools"] = [
