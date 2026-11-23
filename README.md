@@ -28,6 +28,14 @@ README covers the architecture, the configuration and how to extend the kit.
 Everything runs offline out of the box: with the `mock` providers the LLM, speech-to-text and text-to-speech are
 deterministic fakes that still call the real ERP. Add your keys when you are ready.
 
+> **Team 01 (Alpes Restauration — Proactive Voice & ERP Copilot):** `data/seed` is bundled so `make setup` runs cleanly from a fresh clone.
+> Key additions on `feat/team-01-kit`:
+> - **5-role authentication & strict single-admin** (`/login` with 1-click demo profiles: `admin`, `thibault`, `emilie`, `payet`, `leila`, `igloo`, `chambaran`, `perrier`; `/accounts` CRUD with `HTTP 409` on a 2nd admin).
+> - **AI-helped personalised Dashboard** (`GET /ai/suggestions`): live briefing + rotating clickable action cards routing directly to **Voix** or **Assistant**.
+> - **Unified Assistant ↔ Voix sessions** (`apps/ai/app/services/sessions.py` + `sessions.db`): list, search, rename, delete, resume, and continue a voice turn inside text Assistant (and vice-versa).
+> - **Proactive intelligence & safety**: early filler at final transcript + tool start (`total` 1.23 s median audio / 21–39 ms post-transcript), phonetic lexicon resolver (`62/62`, 2.2 ms, confirmed-only learning), TypeSafe Jev micro-decisions (`126–194 ms`), and deterministic backend plausibility warnings (`season_closed`, `unusual_quantity`).
+> - **Deliverables**: [`DECISIONS.md`](DECISIONS.md) (thesis & measured tables), [`presentation/`](presentation/) (5-min deck-as-code), [`demo/`](demo/) (<= 2-min demo video).
+
 | Part | Path | Stack | Port |
 |---|---|---|---|
 | ERP backend | `apps/backend` | Python 3.12 · FastAPI · SQLite | 4000 |

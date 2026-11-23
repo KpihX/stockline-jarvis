@@ -1,7 +1,8 @@
 # DECISIONS.md — team-01 (Alpes Restauration)
 
-Living document. Numbers in section 4 are **measured** (bench in `scripts/bench/`, raw tables in `scripts/bench/results.md`); everything
-else is a decision or a hypothesis and is labelled as such. Last update: 2026-11-23 (V0).
+> **Thèse directrice — La Proactivité comme architecture :** un agent vocal utile dans un ERP ne subit pas l'appel comme un chatbot passif ; il **précharge** l'identité et les habitudes avant la première phrase, **anticipe** la latence par filler précoce et routage rapide (Jev), **alerte** sur les pièges métier (saison fermée, quantité anormale, rupture, impayé) par règles backend déterministes, **apprend** le vocabulaire client uniquement sur preuve confirmée, et **unifie** le tableau de bord, l'Assistant et la Voix sur une mémoire persistante.
+
+Living document. Numbers in §4, §5.4, §6.4, §7–§9 are **measured** (`scripts/bench/`, `scripts/bench/results.md`, live Docker stack captures); everything else is a decision or a hypothesis and is labelled as such. Last update: 2026-11-24.
 
 ## 1. Le problème (use case validé le 2026-11-23)
 
@@ -283,4 +284,81 @@ Un appelant **non identifié** a (a) obtenu les 5 plus gros clients **sans aucun
 - Les conseils d'écoute du lexique (bloc `[Lexique …]` sur les tours parlés) ne sont pas filtrés pour un client : un mot proche du nom d'un autre client peut le lui faire proposer. Ils sont coupés pour `unknown`.
 - Un inconnu peut deviner des noms de clients un par un avec `identify_caller` (3 candidats, sans id ni détail) ; pas de limitation de débit.
 - Les modèles actuels refusent d'eux-mêmes la plupart des attaques (aucun des appels interdits n'a été tenté dans nos essais réels) : c'est le test `--probe` et les tests unitaires qui prouvent le verrou, pas le comportement du modèle.
-- La confirmation « oui explicite » est une détection par mots (oui, d'accord, ok, confirme…) : elle peut refuser à tort une confirmation formulée autrement (l'agent redemande).
+- La confirmation « oui explicite » est une détection par mots (oui, d'accord, ok, confirme…) : elle peut refuser à tort une confirmation formulée autrement (l'agent redemande). *(Amélioré en §7 via `jev_router.confirm_action` quand `JEV_API_KEY` est active.)*
+
+---
+
+## 7. Proactivité système : Jev System One, garde-fous ERP et swap LLM/STT (2026-11-24)
+
+### 7.1 Décisions rapides Jev (`apps/ai/app/services/jev_router.py`)
+
+Plutôt que d'envoyer chaque micro-décision au gros modèle conversationnel (2–4 s), **TypeSafe Jev (`jev-latest`)** intervient en parallèle ou en garde déterministe sur 4 primitives (`100–200 ms` mesurés en live dans le conteneur `ai`) :
+
+| Primitive | Rôle | Latence live mesurée (`ai`) |
+|---|---|---|
+| `route_turn` | Classe le tour (`social` / `simple_read` / `order_write`) pour éviter les outils sur les salutations/remerciements | **193,8 ms** |
+| `disambiguate` | Tranche entre candidats produits/clients proches du lexique | **162,3 ms** |
+| `confirm_action` | Porte booléenne `is_yes` pour confirmer une commande ou apprendre un terme | **131,0 ms** |
+| `score_claim` | Évalue la plausibilité d'une affirmation orale (remise, délai, qualité) avant trace ERP | **126,2 ms** |
+
+### 7.2 Garde-fous de plausibilité dans le backend (`apps/backend/app/services/orders.py`)
+
+Les règles de bon sens métier vivent dans le **backend**, jamais dans le prompt seul : à la création ou modification d'une commande (`POST /api/orders`, `POST /api/orders/{id}/lines`), le service retourne un champ `warnings[]` structuré :
+- `season_closed` : détecte une date de livraison hors fenêtre saisonnière du client (ex. *Le Refuge Payet*, ouvert mi-décembre → mi-avril). Calibré sur **24 141 commandes historiques** : **0,01 %** de faux positifs. Vérifié en live sur `CMD-2026-007300` (200 kg de frites le `2026-12-01` → alerte `season_closed` renvoyée).
+- `unusual_quantity` : quantité `> 2,5 × p90` historique du client sur ce produit (**0,001 %** de faux positifs sur **166 273 lignes**).
+- `credit_alert` / `no_substitution` : remonte immédiatement l'état d'encours ou la préférence stricte sans bloquer l'enregistrement du brouillon.
+
+### 7.3 Interchangeabilité LLM / STT et bascule Anthropic → NVIDIA Nemotron
+
+- **Architecture agnostique :** `.env` pilote `LLM_PROVIDER` (`anthropic`, `nvidia`, `deepseek`, `openai`, `gemini`, `openai-compatible`, `mock`) et `STT_PROVIDER` (`soniox`, `nvidia`, `deepgram`, `gradium`, `openai`, `mock`). `apps/ai/app/clients/presets.py` et `factory.py` résolvent la clé dédiée (`NVIDIA_API_KEY` prioritaire sur une clé Anthropic résiduelle) et désactivent `keep_warm` pour les fournisseurs hors Anthropic.
+- **Incident réel & résilience (2026-11-24) :** la clé Anthropic du workspace kit a atteint son plafond mensuel (`HTTP 400`, réinitialisation le `2026-12-01T00:00Z`). Grâce au preset `nvidia` (`nvidia/nemotron-3-ultra-550b-a55b`, `LLM_EFFORT=low`) activé via `docker-compose.override.yml` (non commité), toute la pile vocale et le chat ont continué sans interruption.
+- **Mesure live sur `WS /voice` avec Nemotron Ultra + Jev + filler précoce (`browser-proxy`) :**
+  - Requête produit (`get_product_stock prd_0028` = **8 ms**) : `LLM 1er = 2,4 s`, `TTS 1er = 131 ms`, **`Total (filler) = 21 ms` / `Perçu = 39 ms`**, `Réponse = 2,6–2,7 s`, `Cache = 26,3k`, `Coût = 0,0031 €`.
+  - Suivi avec `get_product_stock prd_0031` (**5 ms**) : `Total = 3 ms`, `Perçu = 38 ms`, `Réponse = 4,3 s`, `Cache = 35,1k`, `Coût = 0,0073 €`.
+  - Tour social (`"Merci beaucoup !"`) : **0 outil**, `1,2 s`, **`0,0018 €`**.
+- **Benchmark STT cadencé (trames 100 ms temps réel, 20 phrases / 62 entités) :** Soniox + vocabulaire en flux cadencé atteint **225 ms p50** fin-de-parole → final (contre 2,86 s en rafale artificielle sur l'ancien banc) et **62/62 (100 %)** après le résolveur phonétique (médiane **2,2 ms** sur hôte, 0 faux positif sur 80 transcripts + 12 négatifs). Parakeet NVCF (150 ms) et Whisper NVCF (220 ms) restent optionnels derrière `--extra nvidia` ; le repo jury tourne sans extra NVIDIA.
+
+---
+
+## 8. Authentification par profils, sessions unifiées et Tableau de bord IA (2026-11-24)
+
+### 8.1 De l'identité déclarée à l'authentification réelle (`apps/backend/app/services/auth.py`, `apps/ai/app/auth.py`)
+
+La section §6 avait souligné la limite honnête d'une identité purement déclarée. Nous l'avons remplacée par une **authentification signée côté serveur** (hachage `scrypt` + jeton HMAC-SHA256 12 h) avec **5 rôles** et **connexion 1-clic de démo** sur `/login` (8 comptes fictifs dont Direction, Commerciaux, Clients et Fournisseurs) :
+
+| Rôle | Périmètre UI & ERP | Périmètre Agent IA (`policy.py` + `auth.py`) |
+|---|---|---|
+| `admin` (**strictement unique**) | Accès complet + `/accounts` (CRUD comptes, réinitialisation mdp) | Tous les outils + attribution vérifiée `Direction Alpes · administrateur vérifié` |
+| `manager` (Commercial) | Tout le métier ERP (commandes, clients, stock, achats, tournées), sans `/accounts` | Tous les outils métier ; `/accounts` masqué et refusé (`403`) |
+| `client` (rattaché `cli_…`) | Pages filtrées sur son compte (`Mes commandes`, `Mes tarifs`, `Mes factures`, `Mes paiements`, `Mon historique`), zéro accès fournisseur/encours global | Ses commandes, habitudes, tarifs et brouillons uniquement (`403` / `0 résultat` hors périmètre) |
+| `supplier` (rattaché `sup_…`) | `Produits`, `Stocks`, `Mes bons d'achat`, `Ma fiche fournisseur` | Sa fiche fournisseur et ses bons d'achat uniquement ; aucune donnée ni prix client |
+| `unknown` | Redirigé vers `/login` dans l'UI | Lecture catalogue public uniquement, zéro écriture |
+
+- **Invariant Administrateur unique :** `POST /api/accounts` avec `role="admin"` renvoie **`HTTP 409 single_admin`** (vérifié en live), et le compte `admin` ne peut ni être rétrogradé, ni désactivé, ni supprimé.
+
+### 8.2 Tableau de bord personnalisé et aidé par l'IA (`apps/ai/app/services/suggestions.py`, `apps/web/src/pages/dashboard/index.tsx`)
+
+Chaque profil voit un tableau de bord dédié (KPI, habitudes ou bons d'achat, factures/incidents) surmonté d'un bandeau **« Briefing IA en direct »** (`GET /suggestions?seed=…&live=1`) :
+- Calcule en parallèle les faits ERP du profil (panier habituel, repli automatique sur les 3 dernières commandes livrées pour les clients saisonniers hors fenêtre 60 j, brouillons ouverts, ruptures, factures en retard, lots DLC proches, bons d'achat ouverts).
+- Enrichit la synthèse d'accueil via le LLM actif (borné à 6 s, `aiGenerated: true` vérifié en live sur `client`, `supplier`, `manager` et `admin`).
+- Propose **4 cartes d'action cliquables** qui rotent à chaque clic sur *Nouvelles suggestions* et ouvrent directement **Voix** (avec phrase pré-remplie et envoyée) ou **Assistant** (`⌘J`).
+
+### 8.3 Sessions unifiées Assistant ↔ Voix (`apps/ai/app/services/sessions.py`, `SessionPicker.tsx`)
+
+Les surfaces **Assistant** (`⌘J`) et **Voix** (`/voice`) restent distinctes dans l'interface mais partagent désormais un **store SQLite unique** (`sessions.db`, CRUD complet : lister, rechercher, créer, renommer, supprimer, reprendre) et les outils de rappel (`list_past_sessions`, `recall_session`). Vérifié en direct via `browser-proxy` : une question posée sur `/voice` (*« Il vous reste du fromage à raclette tranchée ? »* → 603 kg) est immédiatement visible dans le panneau **Assistant**, qui répond au tour suivant sur le pronom anaphorique (*« Et quel est mon tarif pour cette raclette ? »* → `get_price` 6 ms, `14,20 € HT`).
+
+---
+
+## 9. Synthèse des résultats vérifiés (avant soumission)
+
+| Axe | Métrique | Résultat mesuré | Source / Vérification |
+|---|---|---|---|
+| **Fast** | 1er son vocal (filler précoce) | **1,23 s** médiane audio (`audio_end`), **21–39 ms** après transcript final | `scripts/bench/bench.py` (A/B) + `browser-proxy` live |
+| **Fast** | Finalisation STT temps réel | **225 ms p50** (Soniox cadencé 100 ms, vs 2,86 s en rafale) | `tmp/stt-lab/` (20 phrases, 62 entités) |
+| **Fast** | Micro-décisions Jev | **126–194 ms** (`route`, `disambig`, `is_yes`, `score_claim`) | Appel live conteneur `ai` (`jev-latest`) |
+| **Fast** | Résolveur phonétique | **2,2 ms** médiane (9–20 ms dans Docker) | `scripts/bench/vocab_eval.py` + `GET /vocab/resolve` |
+| **Smart** | Rappel entités métier | **62/62 (100 %)** avec vocab + résolveur (vs 54/62 sans) · **0** faux positif | `scripts/bench/vocab_eval.py` (80 transcripts + 12 négatifs) |
+| **Smart** | Garde-fous plausibilité ERP | `season_closed` (**0,01 %** FP / 24 141 cmd) · `unusual_quantity` (**0,001 %** FP / 166 273 lignes) | `apps/backend/app/services/orders.py` + `CMD-2026-007300` live |
+| **Smart** | Sécurité & 5 rôles | `409 single_admin` · blocage cross-rôle client/fournisseur/inconnu · **59 + 384** tests verts | `pytest` (59 backend + 384 AI) + E2E `browser-proxy` |
+| **Natural** | Coût & continuité | **0,0018–0,0073 €** / tour Nemotron (`0,009–0,017 €` Sonnet) · session unifiée Voix ↔ Assistant | Logs `[turn]` live + `browser-proxy` |
+

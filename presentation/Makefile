@@ -15,7 +15,8 @@ deck:
 preview:
 	uv run --with python-pptx --with matplotlib --with Pillow python scripts/render.py preview
 
-build: check
+build:
+	sh scripts/check-dashes.sh slides/*.md
 	uv run --with python-pptx --with matplotlib --with Pillow python scripts/render.py all --force
 
 clean:

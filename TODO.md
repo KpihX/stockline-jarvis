@@ -49,8 +49,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Client sheet preloaded at identification (1 tool round-trip fewer on an order: 4 → 3, see DECISIONS §6)
 - [x] Unverified writes: provenance in `x-actor-name` + tags, client claims worded "Déclaré par le client (non vérifié)", low severity
 - [x] `tests/test_access_policy.py` (every role × tool, prompts, sheet, enforcement), `scripts/bench/adversarial.py` (real model + `--probe`), `scripts/ui-check/caller-selector.py`
-- [ ] Production identity: caller-ID / authentication instead of the declaration; rate-limit `identify_caller`; filter the lexicon hints for a client
-- [ ] Add `get_price` of the habitual lines to the client sheet (the order flow still calls `get_product_stock` + `get_price` per line)
+- [x] Real profile auth (`admin`, `manager`, `client`, `supplier`, `unknown`) + `/login` 1-click demo accounts + `/accounts` CRUD with strict single-admin invariant (`HTTP 409`, 2026-11-24)
+- [x] Role-scoped UI pages (`orders`, `invoices`, `payments`, `purchase-orders`, `history`, `prices`, `dashboard`) + custom Client/Supplier/Manager-Admin AI-helped dashboards (`GET /suggestions`, rotating clickable cards -> Voix/Assistant)
+- [x] Unified Assistant ↔ Voix SQLite sessions (`services/sessions.py` + `/sessions` REST + `list_past_sessions` / `recall_session` tools + `SessionPicker`), verified E2E via `browser-proxy`
+- [x] Jev `jev_router.py` (`route_turn` 193.8 ms, `disambiguate` 162.3 ms, `confirm_action` 131.0 ms, `score_claim` 126.2 ms) + backend plausibility `warnings[]` (`season_closed`, `unusual_quantity`)
+- [x] Swappable `LLM_PROVIDER=nvidia` (`nvidia/nemotron-3-ultra-550b-a55b`) live-verified after kit Anthropic cap (`total=3-21 ms` filler, `Perçu=38-39 ms`, `0.0018-0.0073 €/tour`)
+- [ ] Optional: Production caller-ID / rate-limit `identify_caller`; filter lexicon hints per client
+- [ ] Optional: Pre-populate `get_price` for habitual lines into the client sheet
 
 ## V1 — smart, fewer round-trips (~5 h)
 - [ ] V1.1 Composite tools: `identify_caller` (client + sheet + history + alerts), `quote_product` (search + stock + client price + alternatives)
@@ -67,10 +72,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] V2.4 Barge-in: history = what was heard, not what was generated
 
 ## Delivery
-- [ ] README: how to restore `data/` next to the Makefile (seed is git-ignored)
-- [ ] Private repo + jury as collaborators (decide: dedicated repo vs branch of `stock-ai`)
-- [ ] Video 2 min (real end-to-end call) · slides 5 min · rehearse live demo
-- [ ] Submit before Tue 17:30
+- [x] `data/` seed bundled and `README.md` updated for `make setup` from a fresh clone
+- [x] Branch `feat/team-01-kit` pushed to GitLab and GitHub
+- [x] `DECISIONS.md` finalized with proactivity thesis, architecture, and measured tables
+- [x] Slides (`presentation/`, <= 5 min) + Demo video (`demo/stockline-team01-demo.mp4`, <= 2 min)
+- [x] Live rehearsal & `make reset` before submission (Tue 17:30)
 
 ## Open questions
 - NVIDIA/Nemotron: only usable with KpihX's own NVIDIA key (kit keys = Anthropic, Soniox, ElevenLabs, Jev).

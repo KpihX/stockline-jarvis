@@ -109,7 +109,7 @@ def fill_columns(prs, slide: slidesmod.Slide):
 
     for i, col in enumerate(slide.columns):
         x = theme.MARGIN_X + i * (col_w + gap)
-        card = page.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(top_y), Inches(col_w), Inches(card_h))
+        card = page.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(top_y), Inches(col_w), Inches(card_h))
         card.fill.solid()
         card.fill.fore_color.rgb = RGBColor.from_string(theme.SURFACE)
         card.line.color.rgb = RGBColor.from_string(theme.BORDER)
@@ -117,17 +117,17 @@ def fill_columns(prs, slide: slidesmod.Slide):
         card.shadow.inherit = False
 
         c_hex = theme.COLOURS.get(col.colour, theme.EMERALD)
-        # Top accent strip per card
-        strip = page.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(top_y), Inches(col_w), Inches(0.055))
+        # Top accent strip flush with crisp rectangle card
+        strip = page.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(top_y), Inches(col_w), Inches(0.06))
         strip.fill.solid()
         strip.fill.fore_color.rgb = RGBColor.from_string(c_hex)
         strip.line.fill.background()
         strip.shadow.inherit = False
 
-        kit.textbox(page, kit.Box(x + 0.22, top_y + 0.18, col_w - 0.44, 0.42), col.name,
+        kit.textbox(page, kit.Box(x + 0.22, top_y + 0.18, col_w - 0.44, 0.44), col.name,
                     kit.TextStyle(size=16, colour=c_hex, bold=True, font=theme.HEAD_FONT))
 
-        body_box = page.shapes.add_textbox(Inches(x + 0.22), Inches(top_y + 0.68), Inches(col_w - 0.44), Inches(card_h - 0.85))
+        body_box = page.shapes.add_textbox(Inches(x + 0.22), Inches(top_y + 0.72), Inches(col_w - 0.44), Inches(card_h - 0.90))
         if col.bullets:
             kit.set_bullets(body_box, col.bullets, levels=theme.LEVELS, anchor=MSO_ANCHOR.TOP,
                             hang_in=0.28, line_pct=115, accent=c_hex)
