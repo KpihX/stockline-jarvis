@@ -28,6 +28,10 @@ Normal : Alt+Espace est un raccourci du système Windows (il ouvre le menu de la
 **Voix**, onglet **Commande** : maintenez Espace (ou le gros bouton micro), parlez, relâchez. C'est la même
 commande vocale.
 
+*Mise à jour (V0.9) : l'en-tête affiche maintenant **Espace**, plus ⌥Espace. Sur n'importe quelle page, maintenez
+Espace (hors d'un champ de saisie) ou cliquez et maintenez le bouton **Voix** : les deux font la même chose. ⌥Espace
+reste disponible, mais seulement là où le système le laisse passer.*
+
 **Comment repartir de zéro ?**
 - Les données de l'ERP sont abîmées par vos tests : `make reset` (recharge les données de départ, les services
   doivent tourner).

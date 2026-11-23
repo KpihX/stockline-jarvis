@@ -5,8 +5,9 @@
  * Agent audio: binary frames between agent_audio_start/end → one Blob → <audio>. Mock TTS → speechSynthesis (fr-FR).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MOCK_TTS_MIME, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
+import { MOCK_TTS_MIME, type TurnCost, type TurnTimings, type VoiceClientMessage, type VoiceServerMessage } from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
+import { MIN_HOLD_MS } from "@/lib/hold-to-talk";
 import { SegmentPlayer } from "./audio-player";
 import type { ToolRun } from "./tools";
 
@@ -20,6 +21,8 @@ export interface VoiceTurn {
   caller: { text: string; stable?: string; at: number; status: "recording" | "transcribing" | "final"; typed?: boolean };
   agent: { text: string; at?: number; tools: ToolRun[]; done: boolean; error?: string; interrupted?: boolean };
   timings?: TurnTimings;
+  /** Tokens / STT seconds / TTS characters of the turn + estimated price (server). */
+  cost?: TurnCost;
   /** Client-side: caller release → agent audio actually starts playing (or speech synthesis starts). */
   perceivedMs?: number;
 }
@@ -45,8 +48,10 @@ export function useVoiceSession() {
   const currentTurn = useRef<number>();
   // mic
   const stream = useRef<MediaStream>();
+  const micOpening = useRef<Promise<MediaStream | undefined>>();
   const recorder = useRef<MediaRecorder>();
   const pressed = useRef(false);
+  const pressedAt = useRef(0);
   const audioCtx = useRef<AudioContext>();
   const analyser = useRef<AnalyserNode>();
   const raf = useRef<number>();
@@ -176,7 +181,7 @@ export function useVoiceSession() {
         player.current?.end();
         break;
       case "agent_done":
-        patchTurn(id, (t) => ({ ...t, timings: m.timings, agent: { ...t.agent, done: true, text: t.agent.text || m.text } }));
+        patchTurn(id, (t) => ({ ...t, timings: m.timings, cost: m.cost, agent: { ...t.agent, done: true, text: t.agent.text || m.text } }));
         if (audioMime.current === MOCK_TTS_MIME && turnHasAudio.current) speak(m.text, id);
         else if (!turnHasAudio.current || !player.current) setActivity((a) => (a === "thinking" ? "idle" : a));
         audioMime.current = undefined;
@@ -226,7 +231,7 @@ export function useVoiceSession() {
   }, [connect, stopPlayback]);
 
   // ── Mic ──
-  const ensureMic = useCallback(async (): Promise<MediaStream | undefined> => {
+  const openMic = useCallback(async (): Promise<MediaStream | undefined> => {
     if (stream.current?.active) return stream.current;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { setMic("unsupported"); return undefined; }
     try {
@@ -247,6 +252,13 @@ export function useVoiceSession() {
     }
   }, []);
 
+  /** One open at a time: the early warm-up and a first key press must not each ask for a stream. */
+  const ensureMic = useCallback((): Promise<MediaStream | undefined> => {
+    if (stream.current?.active) return Promise.resolve(stream.current);
+    micOpening.current ??= openMic().finally(() => { micOpening.current = undefined; });
+    return micOpening.current;
+  }, [openMic]);
+
   const meter = useCallback(() => {
     const an = analyser.current;
     if (!an) return;
@@ -261,13 +273,15 @@ export function useVoiceSession() {
     tick();
   }, []);
 
-  const startTalking = useCallback(async () => {
-    if (pressed.current || conn !== "ready") return;
-    pressed.current = true;
-    stopPlayback();
-    const s = await ensureMic();
-    // Released while the permission prompt / mic warm-up was pending: do not record a stub.
-    if (!s || !pressed.current) { pressed.current = false; return; }
+  /**
+   * Recorder start, with NOTHING awaited before it on the warm path: the mic stream stays open after the first press
+   * (and is opened ahead of time when the permission is already granted, see the effect below), so the key-down handler
+   * creates and starts the MediaRecorder synchronously and the first syllable is not lost to a promise round-trip.
+   * Limitation (no clean pre-roll with MediaRecorder): a recorder restarted mid-stream cannot be replayed, because
+   * WebM chunks taken from the middle of a running recording are not decodable without their cluster headers.
+   * So audio before the key goes down is not captured, and the encoder's own start-up (tens of ms) is not hidden.
+   */
+  const beginRecording = useCallback((s: MediaStream) => {
     const mime = REC_MIME.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
     const rec = new MediaRecorder(s, mime ? { mimeType: mime } : undefined);
     recorder.current = rec;
@@ -279,12 +293,37 @@ export function useVoiceSession() {
       releasedAt.current = performance.now();
     };
     void audioCtx.current?.resume();
+    pressedAt.current = performance.now();
     rec.start(100); // a chunk every 100 ms: the STT hears the words while they are spoken
     newTurn({ text: "", at: Date.now(), status: "recording" });
     setActivity("recording");
     setLastError(undefined);
     meter();
-  }, [conn, ensureMic, meter, newTurn, send, stopPlayback]);
+  }, [meter, newTurn, send]);
+
+  const startTalking = useCallback(() => {
+    if (pressed.current || conn !== "ready") return;
+    pressed.current = true;
+    stopPlayback();
+    const warm = stream.current;
+    if (warm?.active) { beginRecording(warm); return; }
+    // Cold path (first press ever: permission prompt): the only place we wait.
+    void ensureMic().then((s) => {
+      // Released while the permission prompt / mic warm-up was pending: do not record a stub.
+      if (!s || !pressed.current) { pressed.current = false; return; }
+      beginRecording(s);
+    });
+  }, [beginRecording, conn, ensureMic, stopPlayback]);
+
+  // Permission already granted (earlier visit): open the mic now so even the first press takes the warm path.
+  useEffect(() => {
+    let cancelled = false;
+    navigator.permissions?.query({ name: "microphone" as PermissionName })
+      .then((p) => (!cancelled && p.state === "granted" ? ensureMic() : undefined))
+      .then((s) => { if (s && !alive.current) s.getTracks().forEach((t) => t.stop()); }) // unmounted while opening: do not leak the mic
+      .catch(() => undefined); // Safari / Firefox: no microphone permission query, the first press asks as before
+    return () => { cancelled = true; };
+  }, [ensureMic]);
 
   const stopTalking = useCallback(() => {
     if (!pressed.current) return;
@@ -293,12 +332,24 @@ export function useVoiceSession() {
     setLevel(0);
     const rec = recorder.current;
     recorder.current = undefined;
+    if (rec && rec.state !== "inactive" && performance.now() - pressedAt.current < MIN_HOLD_MS) {
+      // A tap / accidental click, not an utterance: stop without sending the audio, tell the server to drop it, forget the turn.
+      rec.ondataavailable = null;
+      rec.onstop = null;
+      rec.stop();
+      send({ type: "audio_cancel" });
+      const id = currentTurn.current;
+      currentTurn.current = undefined;
+      setTurns((ts) => ts.filter((t) => t.id !== id));
+      setActivity("idle");
+      return;
+    }
     if (rec && rec.state !== "inactive") {
       rec.stop();
       patchTurn(currentTurn.current, (t) => ({ ...t, caller: { ...t.caller, status: "transcribing" } }));
       setActivity("thinking");
     }
-  }, [patchTurn]);
+  }, [patchTurn, send]);
 
   const sendText = useCallback((text: string) => {
     const v = text.trim();

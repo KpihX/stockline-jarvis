@@ -1,16 +1,17 @@
 /**
  * Voix · Commande (un tour) — the user drives the ERP by voice, one utterance at a time (POST /ai/command, stateless).
- * Hold Space here (or ⌥ Space on any page, or the big button), say the command, release.
+ * Hold Space (or click-and-hold the big button; ⌥ Space too), say the command, release. Same gestures on any page via the header "Voix" button.
  * History of commands (newest first): transcript, ERP tool rows, one-line answer + links, latency chips. Live ERP column on the right.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { AudioLines, Gauge, Mic, MicOff, Send, Trash2, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { HOLD_TO_TALK_ATTR, useHoldPointer, useSpaceHold } from "@/lib/hold-to-talk";
 import { Button, Dot, EmptyState, IconButton, Input, Kbd, Page, PageHeader, SECTION_LABEL, Spinner } from "@/ui";
 import { useAiHealth } from "@/features/assistant/ai-client";
 import {
   clearCommandHistory, COMMAND_METRICS, LevelMeter, metricValue, MsChip, RunBody, RunChips, sendCommandText, setSpeak,
-  startCommand, stopCommand, stopSpeaking, useVoiceCommand, VOICE_COMMAND_HINT, type CommandRun, type CommandState,
+  startCommand, stopCommand, stopSpeaking, useVoiceCommand, VOICE_COMMAND_HOW, type CommandRun, type CommandState,
 } from "@/features/voice-command";
 import { LiveActivity } from "./live-activity";
 
@@ -20,11 +21,6 @@ const EXAMPLES = [
   "Marque la facture FAC-2026-011590 comme payée par virement",
 ];
 
-const isTypingTarget = (t: EventTarget | null) => {
-  const el = t as HTMLElement | null;
-  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-};
-
 const PHASE_LABEL: Record<CommandState["phase"], string> = {
   idle: "Prêt", recording: "J'écoute…", working: "J'exécute…", done: "Prêt", error: "Prêt",
 };
@@ -33,36 +29,9 @@ export function CommandMode({ modeSwitch }: { modeSwitch: ReactNode }) {
   const s = useVoiceCommand();
   const health = useAiHealth();
   const [text, setText] = useState("");
-  const spaceDown = useRef(false);
 
-  // Space = hold to talk (outside text fields). ⌥ Space works everywhere via the global provider.
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !isTypingTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        if (e.repeat || spaceDown.current) return;
-        spaceDown.current = true;
-        void startCommand();
-      } else if (e.key === "Escape") {
-        stopSpeaking();
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !spaceDown.current) return;
-      e.preventDefault();
-      spaceDown.current = false;
-      stopCommand();
-    };
-    const blur = () => { if (spaceDown.current) { spaceDown.current = false; stopCommand(); } };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", blur);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", blur);
-    };
-  }, []);
+  // Hold Space = talk (this page owns plain Space; ⌥ Space comes from the global provider). Esc cuts the voice reply.
+  useSpaceHold({ start: () => void startCommand(), stop: stopCommand, scope: "page", onEscape: stopSpeaking });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -111,7 +80,7 @@ export function CommandMode({ modeSwitch }: { modeSwitch: ReactNode }) {
               <EmptyState
                 icon={AudioLines}
                 title="Pilotez l'ERP à la voix, une commande à la fois"
-                description="Maintenez Espace (ou ⌥ Espace sur n'importe quelle page), dites la commande, relâchez : l'agent l'exécute et répond en une ligne."
+                description="Maintenez Espace (ou cliquez et maintenez le bouton micro, sur cette page comme sur toutes les autres), dites la commande, relâchez : l'agent l'exécute et répond en une ligne."
                 action={
                   <div className="flex flex-col items-center gap-1.5">
                     {EXAMPLES.map((ex) => (
@@ -153,8 +122,8 @@ export function CommandMode({ modeSwitch }: { modeSwitch: ReactNode }) {
               {s.phase === "recording" ? (
                 <LevelMeter level={s.level} n={12} />
               ) : (
-                <span className="flex items-center gap-1 text-[11.5px] text-muted-foreground">
-                  <Kbd>Espace</Kbd> ici · <Kbd>{VOICE_COMMAND_HINT}</Kbd> partout
+                <span className="text-[11.5px] leading-[15px] text-muted-foreground" title="⌥ Espace marche aussi, même dans un champ de saisie">
+                  Maintenez <Kbd>Espace</Kbd> ou cliquez et maintenez le bouton
                 </span>
               )}
             </div>
@@ -226,23 +195,17 @@ function ProviderChip({ k, v }: { k: string; v: string }) {
 }
 
 function HoldButton({ recording, disabled }: { recording: boolean; disabled: boolean }) {
-  const held = useRef(false);
+  const hold = useHoldPointer(() => void startCommand(), stopCommand);
   return (
     <button
       type="button"
+      {...{ [HOLD_TO_TALK_ATTR]: "command-page" }}
       disabled={disabled}
-      aria-label="Maintenir pour dire une commande"
+      aria-label={`Dire une commande. ${VOICE_COMMAND_HOW} ce bouton.`}
+      title={`${VOICE_COMMAND_HOW} ce bouton pour dire une commande`}
       aria-pressed={recording}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        held.current = true;
-        void startCommand();
-      }}
-      onPointerUp={() => { if (held.current) { held.current = false; stopCommand(); } }}
-      onPointerCancel={() => { if (held.current) { held.current = false; stopCommand(); } }}
+      {...hold}
       onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-      onContextMenu={(e) => e.preventDefault()}
       className={cn(
         "relative flex h-14 w-14 shrink-0 select-none items-center justify-center rounded-full border transition-[transform,background-color,border-color] duration-100",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet/70 disabled:opacity-40",
@@ -250,7 +213,6 @@ function HoldButton({ recording, disabled }: { recording: boolean; disabled: boo
           ? "scale-95 border-violet bg-violet text-primary-foreground"
           : "border-violet/40 bg-violet/10 text-violet hover:border-violet hover:bg-violet/15",
       )}
-      style={{ touchAction: "none" }}
     >
       {recording ? <span className="absolute inset-0 animate-ping rounded-full bg-violet/30" aria-hidden /> : null}
       <Mic size={22} strokeWidth={1.75} className="relative" />

@@ -58,6 +58,7 @@ export type VoiceClientMessage =
   | { type: "start"; sessionId?: string; actorName?: string } // opens a conversation
   | { type: "audio_start"; mime: string; hint?: string } // caller pressed space (hint: optional STT vocabulary; mock STT returns it)
   | { type: "audio_end" } // caller released space; binary frames sent in between (every 100–250 ms) are the utterance, streamed to the STT as they arrive
+  | { type: "audio_cancel" } // instead of audio_end: released right after audio_start (a tap / accidental click): drop it, no turn
   | { type: "text"; text: string } // typed instead of spoken (debug)
   | { type: "reset" };
 
@@ -66,7 +67,22 @@ export interface TurnTimings {
   llmFirstTokenMs?: number;
   llmTotalMs?: number;
   ttsFirstByteMs?: number;
-  totalMs?: number; // end of caller speech → first agent audio byte
+  totalMs?: number; // end of caller speech → first agent audio byte (a filler counts: see firstSoundKind)
+  firstToolCallMs?: number; // start of the agent → first tool call announced by the model
+  firstSoundKind?: "filler" | "answer"; // what totalMs measures: a canned wait phrase, or the real answer
+  answerMs?: number; // end of caller speech → first byte of the REAL answer (= totalMs when there is no filler)
+}
+
+/** What a voice turn consumed + an ESTIMATED price (constants in apps/ai/app/pricing.py: list prices, not an invoice). */
+export interface TurnCost {
+  llmInputTokens?: number; // uncached input tokens
+  llmOutputTokens?: number;
+  llmCacheReadTokens?: number;
+  llmCacheCreationTokens?: number;
+  sttSeconds?: number;
+  ttsChars?: number; // cached fillers excluded
+  estimatedUsd?: number;
+  estimatedEur?: number;
 }
 
 export type VoiceServerMessage =
@@ -78,7 +94,7 @@ export type VoiceServerMessage =
   | { type: "agent_tool"; name: string; ok?: boolean; ms?: number; args?: Record<string, unknown> }
   | { type: "agent_audio_start"; mime: string } // binary frames follow
   | { type: "agent_audio_end" }
-  | { type: "agent_done"; text: string; timings: TurnTimings }
+  | { type: "agent_done"; text: string; timings: TurnTimings; cost?: TurnCost }
   | { type: "error"; message: string };
 
 /**

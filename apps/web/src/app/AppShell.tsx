@@ -15,7 +15,7 @@ import { shell, useShell } from "./shell-state";
  * The Assistant toggle sits top-right on every route: inside each PageHeader (via PageHeaderSlot), or — when the
  * current route renders no PageHeader — in a shell-owned slot at the top-right of <main>.
  */
-/** Global top-right tools, grouped: hold-to-talk voice command (⌥Space) + Assistant toggle (⌘J). */
+/** Global top-right tools, grouped: hold-to-talk voice command (hold Space or click-and-hold) + Assistant toggle (⌘J). */
 function ShellHeaderTools() {
   return (
     <div className="flex shrink-0 items-center gap-1" data-shell-tools>

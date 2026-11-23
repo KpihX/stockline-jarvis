@@ -1173,6 +1173,11 @@ les abonnés `useOnActivity`. Les pages ne font jamais de polling.
 - Les appels d'outils s'affichent avec `features/assistant/tools.tsx` (`TOOL_LABEL`, liens vers l'entité).
 - Espace = push-to-talk sur `/voice` hors champ texte (`pages/voice/index.tsx:50-75`) ; ⌥Espace partout, même dans un
   champ (`VoiceCommand.tsx:23-40`).
+- Correction (V0.9) : tous les gestes « maintenir pour parler » passent maintenant par `lib/hold-to-talk.ts`
+  (`useSpaceHold`, `useHoldPointer`, `canHoldTalk`). Espace (maintenu) lance la commande vocale sur **toutes** les pages
+  (hors champ de saisie et hors bouton/menu atteint au clavier), le clic-maintenu (souris, tactile) marche partout, et
+  ⌥Espace reste en plus (même dans un champ). Un appui < 300 ms n'envoie rien (`audio_cancel` côté appel).
+  Vérification en navigateur : `uv run --with websockets scripts/ui-check/hold-to-talk.py`.
 
 <a id="ajouter-page"></a>
 ### Étendre : ajouter une page (6.6)

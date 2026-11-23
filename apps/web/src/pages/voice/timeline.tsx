@@ -38,8 +38,8 @@ export function Timeline({ turns, activity, level }: { turns: VoiceTurn[]; activ
         <EmptyState
           icon={AudioLines}
           title="Jouez le client au téléphone"
-          description="Maintenez Espace (ou le gros bouton) pour parler, relâchez pour que l'agent réponde. Les commandes qu'il crée apparaissent à droite, en direct."
-          action={<span className="flex items-center gap-1.5 text-[12px] text-muted-foreground"><Kbd>Espace</Kbd> parler · <Kbd>Échap</Kbd> couper l'agent</span>}
+          description="Maintenez Espace (ou cliquez et maintenez le gros bouton micro) pour parler, relâchez pour que l'agent réponde. Les commandes qu'il crée apparaissent à droite, en direct."
+          action={<span className="flex items-center gap-1.5 text-[12px] text-muted-foreground"><Kbd>Espace</Kbd> maintenir pour parler · <Kbd>Échap</Kbd> couper l'agent</span>}
         />
       ) : (
         <ol className="relative flex flex-col gap-3 px-5 py-4">

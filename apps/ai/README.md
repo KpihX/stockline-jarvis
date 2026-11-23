@@ -154,15 +154,16 @@ start {sessionId?, actorName?}           ──►
 audio_start {mime, hint?}                ──►   (a new utterance interrupts the agent: barge-in; hint = STT hint, mock STT returns it)
 <binary audio frames, every 100–250 ms>  ──►   streamed to the STT as they arrive
                                          ◄──   transcript {track: "caller", text, final: false, stable} …   (live, while speaking)
+audio_cancel                             ──►   (instead of audio_end: the key came up right after audio_start, a tap: drop the recording, no turn)
 audio_end                                ──►   (or: text {text} to type instead)
                                          ◄──   transcript {track: "caller", text, final: true}
                                          ◄──   agent_text {delta} …   agent_tool {name, args} / {name, ok, ms}
                                          ◄──   agent_audio_start {mime}, <binary audio chunks>, agent_audio_end
-                                         ◄──   agent_done {text, timings}
+                                         ◄──   agent_done {text, timings, cost}   (timings.firstSoundKind: filler | answer; cost: tokens, STT s, TTS chars, ESTIMATED €)
 reset                                    ──►   history cleared, ready again
 ```
 
-- `WS /voice/command[?speak=1]`: the same live audio for ONE voice command (the ⌥Space HUD): `audio_start`, frames,
+- `WS /voice/command[?speak=1]`: the same live audio for ONE voice command (the Space / click-and-hold HUD): `audio_start`, frames,
   `audio_end` (or one `text`) → `transcript {final: false}` while speaking, then the `POST /command` events as JSON
   messages; closed after `done` / `error`. Closing it earlier cancels the command.
 - Each finished sentence goes to TTS right away; the audio of one turn is **one segment** (mp3 chunks concatenate fine).

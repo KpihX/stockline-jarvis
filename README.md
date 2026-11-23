@@ -124,7 +124,7 @@ One turn = **system prompt + conversation → model → (tools in parallel → m
 |---|---|---|
 | `chat` | Assistant panel (⌘J) | short markdown answers |
 | `voice` | **Voix** page, `WS /voice` | 1–2 spoken sentences, numbers said out loud |
-| `command` | ⌥Space anywhere | acts immediately, one-line answer, can open a page |
+| `command` | hold Space (or click-and-hold the header "Voix" button) anywhere; ⌥Space too | acts immediately, one-line answer, can open a page |
 
 ### Add a tool
 
@@ -182,7 +182,7 @@ ai_chat · voice_agent.
 - **Voix** page (`/voice`): hold **Space** to talk as the caller, release to send (or type). Shows the transcript,
   streamed answer, tool calls, per-turn timings (STT, first LLM token, first audio byte, total) and the ERP changes live.
   Talking while the agent speaks interrupts it.
-- **⌥Space** anywhere: one-shot voice command ("crée une commande pour l'Écume, 5 kilos de bar").
+- **Hold Space, or click-and-hold the header "Voix" button**, on any page: one-shot voice command (⌥Space also works, even in a text field, where the OS lets Alt+Space through; "crée une commande pour l'Écume, 5 kilos de bar").
 - **Live transcription**: the audio is streamed to the STT while the key is down (Soniox, Deepgram; the mock simulates it),
   so the caller's words appear as they are spoken (grey italic = provisional) and the final text is ready right after the
   release. Client / product names from the ERP are sent as STT vocabulary. See TECH.md « Transcription en direct ».

@@ -1,5 +1,5 @@
-/** Single-turn voice command (POST /ai/command): global hold-to-talk (⌥ Space), HUD, header button, shared engine. */
-export { VoiceCommandProvider, VoiceCommandButton, VoiceCommandHud, RunBody, VOICE_COMMAND_HINT } from "./VoiceCommand";
+/** Single-turn voice command (POST /ai/command): global hold-to-talk (Space or click-and-hold; ⌥ Space too), HUD, header button, shared engine. */
+export { VoiceCommandProvider, VoiceCommandButton, VoiceCommandHud, RunBody, VOICE_COMMAND_HINT, VOICE_COMMAND_HOW } from "./VoiceCommand";
 export {
   useVoiceCommand, startCommand, stopCommand, sendCommandText, closeHud, openHud, setSpeak, stopSpeaking, clearCommandHistory,
   onCommandNavigate, type CommandRun, type CommandState, type CommandPhase,

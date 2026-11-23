@@ -3,7 +3,7 @@
  * Module-level singleton (tiny external store), so the global HUD and the Voix page "Commande" mode share
  * the same recorder, the same run in progress and the same history.
  *
- *   hold (⌥ Space / button) → MediaRecorder chunks every 100 ms → WS /ai/voice/command?speak=1 (live transcription:
+ *   hold (Space / ⌥ Space / click-and-hold the button) → MediaRecorder chunks every 100 ms → WS /ai/voice/command?speak=1 (live transcription:
  *     `transcript` final:false while speaking) → release → audio_end
  *   typed → POST /ai/command?speak=1 (JSON), answered as SSE
  *   events (both): transcript → tool_call / tool_result / text → navigate? → speech? → done {timings} | error
@@ -11,6 +11,7 @@
 import { useSyncExternalStore } from "react";
 import { MOCK_TTS_MIME, type CommandStreamEvent, type TurnTimings } from "@kit/shared";
 import { AI_BASE } from "@/lib/api";
+import { MIN_HOLD_MS } from "@/lib/hold-to-talk";
 import type { ToolRun } from "@/features/assistant/tools";
 
 export type CommandPhase = "idle" | "recording" | "working" | "done" | "error";
@@ -45,7 +46,7 @@ export interface CommandState {
 
 const SPEAK_KEY = "voice-command.speak";
 const REC_MIME = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-const MIN_RECORDING_MS = 300; // shorter = an accidental tap, not a command
+const MIN_RECORDING_MS = MIN_HOLD_MS; // shorter = an accidental tap, not a command
 const MIC_IDLE_RELEASE_MS = 30_000; // keep the mic warm a little, then free it (browser "recording" dot goes away)
 
 const readSpeak = () => {

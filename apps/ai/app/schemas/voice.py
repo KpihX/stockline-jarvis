@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import Field
 
 from .base import WireModel
-from .chat import TurnTimings
+from .chat import TurnCost, TurnTimings
 
 # ── Client → server ──
 
@@ -38,6 +38,12 @@ class AudioEndMessage(WireModel):
     type: Literal["audio_end"] = "audio_end"
 
 
+class AudioCancelMessage(WireModel):
+    """Caller released the key almost at once (a tap, a click): drop the recording started by audio_start, no turn."""
+
+    type: Literal["audio_cancel"] = "audio_cancel"
+
+
 class TextMessage(WireModel):
     """Typed instead of spoken (debug)."""
 
@@ -50,7 +56,7 @@ class ResetMessage(WireModel):
 
 
 VoiceClientMessage = Annotated[
-    Union[StartMessage, AudioStartMessage, AudioEndMessage, TextMessage, ResetMessage],
+    Union[StartMessage, AudioStartMessage, AudioEndMessage, AudioCancelMessage, TextMessage, ResetMessage],
     Field(discriminator="type"),
 ]
 
@@ -107,6 +113,7 @@ class AgentDoneMessage(WireModel):
     type: Literal["agent_done"] = "agent_done"
     text: str
     timings: TurnTimings
+    cost: TurnCost | None = None  # tokens, STT seconds, TTS characters and their estimated price
 
 
 class VoiceErrorMessage(WireModel):

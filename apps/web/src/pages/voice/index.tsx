@@ -4,24 +4,20 @@
  *  - Commande (un tour): single-turn voice commands on POST /ai/command, see ./command.tsx.
  *
  * Appel: two-track push-to-talk lab on WS /ai/voice.
- * Hold Space (or the big button) to speak as the caller; the agent answers with streamed text, tool calls and audio.
+ * Hold Space (or click-and-hold the big button) to speak as the caller; the agent answers with streamed text, tool calls and audio.
  * Per-turn latency chips + running average; live ERP writes of the voice agent on the right.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useUrlState } from "@/lib/url-state";
 import { MicOff, Mic, RotateCcw, Send, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { HOLD_TO_TALK_ATTR, useHoldPointer, useSpaceHold } from "@/lib/hold-to-talk";
 import { Button, Dot, IconButton, Input, Kbd, Page, PageHeader, Spinner, Tabs } from "@/ui";
 import { useVoiceSession, type Activity, type Conn } from "@/features/assistant/useVoiceSession";
 import { CommandMode } from "./command";
 import { LiveActivity } from "./live-activity";
 import { MetricsBar } from "./metrics";
 import { LevelBars, Timeline } from "./timeline";
-
-const isTypingTarget = (t: EventTarget | null) => {
-  const el = t as HTMLElement | null;
-  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
-};
 
 const STATE_LABEL: Record<Activity, string> = { idle: "Prêt", recording: "Enregistrement", thinking: "L'agent réfléchit", speaking: "L'agent parle" };
 
@@ -42,41 +38,10 @@ export default function VoicePage() {
 
 function CallMode({ modeSwitch }: { modeSwitch: ReactNode }) {
   const v = useVoiceSession();
-  const vRef = useRef(v);
-  vRef.current = v;
   const [text, setText] = useState("");
-  const spaceDown = useRef(false);
 
-  // Space = push-to-talk (outside text fields), Esc = stop playback.
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !isTypingTarget(e.target) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        if (e.repeat || spaceDown.current) return;
-        spaceDown.current = true;
-        void vRef.current.startTalking();
-      } else if (e.key === "Escape") {
-        vRef.current.stopPlayback();
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !spaceDown.current) return;
-      e.preventDefault();
-      spaceDown.current = false;
-      vRef.current.stopTalking();
-    };
-    const blur = () => {
-      if (spaceDown.current) { spaceDown.current = false; vRef.current.stopTalking(); }
-    };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", blur);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", blur);
-    };
-  }, []);
+  // Hold Space = push-to-talk (outside text fields; this page owns plain Space), Esc = cut the agent.
+  useSpaceHold({ start: v.startTalking, stop: v.stopTalking, scope: "page", onEscape: v.stopPlayback });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -125,7 +90,7 @@ function CallMode({ modeSwitch }: { modeSwitch: ReactNode }) {
           ) : null}
 
           <div className="flex shrink-0 items-center gap-4 border-t border-border px-5 py-3">
-            <TalkButton activity={v.activity} disabled={!ready} onDown={() => void v.startTalking()} onUp={v.stopTalking} />
+            <TalkButton activity={v.activity} disabled={!ready} onDown={v.startTalking} onUp={v.stopTalking} />
             <div className="flex shrink-0 flex-col gap-1 xl:w-[180px]">
               <span className={cn("flex items-center gap-1.5 text-[13px] font-medium", v.activity !== "idle" && "text-violet")}>
                 {v.activity === "thinking" ? <Spinner size={12} /> : v.activity !== "idle" ? <Dot tone="violet" pulse /> : null}
@@ -134,7 +99,7 @@ function CallMode({ modeSwitch }: { modeSwitch: ReactNode }) {
               {v.activity === "recording" ? (
                 <LevelBars level={v.level} />
               ) : (
-                <span className="hidden items-center gap-1 text-[11.5px] text-muted-foreground xl:flex"><Kbd>Espace</Kbd> maintenir pour parler</span>
+                <span className="text-[11.5px] leading-[15px] text-muted-foreground">Maintenez <Kbd>Espace</Kbd> ou cliquez et maintenez le micro pour parler</span>
               )}
             </div>
             <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
@@ -178,23 +143,17 @@ function Provider({ k, v }: { k: string; v: string }) {
 
 function TalkButton({ activity, disabled, onDown, onUp }: { activity: Activity; disabled: boolean; onDown: () => void; onUp: () => void }) {
   const rec = activity === "recording";
-  const held = useRef(false);
+  const hold = useHoldPointer(onDown, onUp);
   return (
     <button
       type="button"
+      {...{ [HOLD_TO_TALK_ATTR]: "call" }}
       disabled={disabled}
-      aria-label="Maintenir pour parler"
+      aria-label="Parler : maintenez Espace ou cliquez et maintenez ce bouton"
+      title="Maintenez Espace ou cliquez et maintenez ce bouton pour parler"
       aria-pressed={rec}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        held.current = true;
-        onDown();
-      }}
-      onPointerUp={() => { if (held.current) { held.current = false; onUp(); } }}
-      onPointerCancel={() => { if (held.current) { held.current = false; onUp(); } }}
+      {...hold}
       onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-      onContextMenu={(e) => e.preventDefault()}
       className={cn(
         "relative flex h-14 w-14 shrink-0 select-none items-center justify-center rounded-full border transition-[transform,background-color,border-color] duration-100",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet/70 disabled:opacity-40",
@@ -202,7 +161,6 @@ function TalkButton({ activity, disabled, onDown, onUp }: { activity: Activity; 
           ? "scale-95 border-violet bg-violet text-primary-foreground"
           : "border-violet/40 bg-violet/10 text-violet hover:border-violet hover:bg-violet/15",
       )}
-      style={{ touchAction: "none" }}
     >
       {rec ? <span className="absolute inset-0 animate-ping rounded-full bg-violet/30" aria-hidden /> : null}
       <Mic size={22} strokeWidth={1.75} className="relative" />

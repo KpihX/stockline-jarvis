@@ -60,8 +60,27 @@ class TurnTimings(WireModel):
     stt_ms: int | None = None
     llm_first_token_ms: int | None = None
     llm_total_ms: int | None = None
-    tts_first_byte_ms: int | None = None
-    total_ms: int | None = Field(None, description="End of caller speech → first agent audio byte")
+    tts_first_byte_ms: int | None = Field(None, description="First SYNTHESISED sentence: TTS call → first byte (a cached filler does not count)")
+    total_ms: int | None = Field(None, description="End of caller speech → first agent audio byte (a filler counts: see first_sound_kind)")
+    first_tool_call_ms: int | None = Field(None, description="Start of the agent → first tool call announced by the model")
+    first_sound_kind: Literal["filler", "answer"] | None = Field(
+        None, description="What total_ms measures: a canned wait phrase played before the tools, or the real answer"
+    )
+    answer_ms: int | None = Field(None, description="End of caller speech → first byte of the real answer (= total_ms when there is no filler)")
+
+
+class TurnCost(WireModel):
+    """What one voice turn consumed, with an ESTIMATED price (constants in app/pricing.py: public list prices, not an invoice).
+    The warm-up calls (TTS word, cache priming and keep-alive pings, filler synthesis) are not in a turn's cost."""
+
+    llm_input_tokens: int | None = Field(None, description="Uncached input tokens, all model calls of the turn")
+    llm_output_tokens: int | None = None
+    llm_cache_read_tokens: int | None = None
+    llm_cache_creation_tokens: int | None = None
+    stt_seconds: float | None = Field(None, description="Audio streamed to the STT (≈ the length of the caller's speech)")
+    tts_chars: int | None = Field(None, description="Characters sent to the TTS this turn (cached fillers excluded)")
+    estimated_usd: float | None = None
+    estimated_eur: float | None = None
 
 
 # ── Stream events ──

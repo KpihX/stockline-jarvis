@@ -1,12 +1,15 @@
 /**
- * Global voice command: hold ⌥ Space (or press-and-hold the "Voix" button) on ANY page, say one command, release.
+ * Global voice command: hold Space (or click-and-hold the "Voix" button) on ANY page, say one command, release.
+ * ⌥ Space does the same, even inside a text field (where the OS lets Alt+Space through).
  * A compact HUD at the bottom center shows: level meter → transcript → ERP tool rows → one-line answer + "Ouvrir".
- * It auto-dismisses a few seconds after the answer; Esc closes it. On /voice the page shows the runs itself (no HUD).
+ * It auto-dismisses a few seconds after the answer; Esc closes it. On /voice the page shows the runs itself (no HUD),
+ * and the page owns plain Space (see pages/voice). Gestures: lib/hold-to-talk.ts.
  */
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Check, CircleAlert, Keyboard, Mic, MicOff, Send, Volume2, VolumeX, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { HOLD_TO_TALK_ATTR, useHoldPointer, useSpaceHold } from "@/lib/hold-to-talk";
 import { buttonClass, Dot, IconButton, Input, Kbd, Spinner } from "@/ui";
 import { LiveTranscript } from "@/features/assistant/LiveTranscript";
 import { ToolRow } from "@/features/assistant/tools";
@@ -16,48 +19,19 @@ import {
 } from "./engine";
 import { LevelMeter, RunLinks } from "./parts";
 
-export const VOICE_COMMAND_HINT = "⌥ Espace";
+/** What the key caps and tooltips say. Plain Space is the headline; ⌥ Space is the variant that also works in text fields. */
+export const VOICE_COMMAND_HINT = "Espace";
+export const VOICE_COMMAND_HOW = "Maintenez Espace ou cliquez et maintenez";
 const DISMISS_MS = 6_000;
 const DISMISS_ERROR_MS = 9_000;
 const onVoicePage = (path: string) => path === "/voice" || path.startsWith("/voice/");
 
-/** Hold ⌥ Space anywhere = record a command (works inside inputs too: Option+Space would only type a nbsp). */
-function useHoldToTalkShortcut() {
-  useEffect(() => {
-    let held = false;
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && e.altKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (e.repeat || held) return;
-        held = true;
-        void startCommand();
-      } else if (e.key === "Escape" && !held) {
-        closeHud();
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (!held || (e.code !== "Space" && e.key !== "Alt")) return;
-      e.preventDefault();
-      held = false;
-      stopCommand();
-    };
-    const blur = () => { if (held) { held = false; stopCommand(); } };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", blur);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", blur);
-    };
-  }, []);
-}
-
 /** Mount once in the shell (inside the router). Registers the shortcut, opens what the user asked to see, renders the HUD. */
 export function VoiceCommandProvider({ children }: { children?: ReactNode }) {
-  useHoldToTalkShortcut();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  // Hold Space = record a command on any page but /voice (there the page owns Space); ⌥ Space works everywhere, fields included.
+  useSpaceHold({ start: () => void startCommand(), stop: stopCommand, scope: "global", plain: !onVoicePage(pathname), alt: true, onEscape: closeHud });
   const pathRef = useRef(pathname);
   pathRef.current = pathname;
 
@@ -73,34 +47,26 @@ export function VoiceCommandProvider({ children }: { children?: ReactNode }) {
   );
 }
 
-/** Header button: mic · "Voix" · ⌥ Espace. Press and hold to talk; a short click opens the HUD (typed command). */
+/** Header button: mic · "Voix" · Espace. Hold Space or click-and-hold to talk; a short click opens the HUD (typed command). */
 export function VoiceCommandButton({ className }: { className?: string }) {
   const s = useVoiceCommand();
-  const held = useRef(false);
+  const hold = useHoldPointer(() => void startCommand(), stopCommand);
   const rec = s.phase === "recording";
   return (
     <button
       type="button"
-      aria-label={`Commande vocale : maintenir pour parler (${VOICE_COMMAND_HINT})`}
-      title={`Commande vocale : maintenez pour parler (${VOICE_COMMAND_HINT})`}
+      {...{ [HOLD_TO_TALK_ATTR]: "command" }}
+      aria-label={`Commande vocale. ${VOICE_COMMAND_HOW} ce bouton pour dire une commande.`}
+      title={`Commande vocale : ${VOICE_COMMAND_HOW} ce bouton pour dire une commande (⌥ Espace dans un champ de saisie)`}
       aria-pressed={rec}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        held.current = true;
-        void startCommand();
-      }}
-      onPointerUp={() => { if (held.current) { held.current = false; stopCommand(); } }}
-      onPointerCancel={() => { if (held.current) { held.current = false; stopCommand(); } }}
+      {...hold}
       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); openHud(); } }}
-      onContextMenu={(e) => e.preventDefault()}
       className={cn(
         buttonClass({ variant: "ghost", size: "sm" }),
         "px-2 text-secondary-foreground",
         rec && "border-violet/40 bg-violet/10 text-violet hover:bg-violet/15",
         className,
       )}
-      style={{ touchAction: "none" }}
     >
       {rec ? <Dot tone="violet" pulse /> : <Mic size={13} strokeWidth={1.75} className="shrink-0 text-violet" aria-hidden />}
       <span className="shell-label">Voix</span>
@@ -145,9 +111,9 @@ export function VoiceCommandHud() {
             {PHASE_LABEL[s.phase]}
           </span>
           {s.phase === "recording" ? <LevelMeter level={s.level} className="ml-1" /> : null}
-          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground" title={`${VOICE_COMMAND_HOW} le bouton Voix`}>
             <Kbd>{VOICE_COMMAND_HINT}</Kbd>
-            <span className="hidden sm:inline">maintenir</span>
+            <span className="hidden sm:inline">maintenir ou cliquer-maintenir</span>
           </span>
           <IconButton
             icon={s.speak ? Volume2 : VolumeX}
@@ -168,7 +134,7 @@ export function VoiceCommandHud() {
             </div>
           ) : !run && s.phase === "idle" ? (
             <div className="text-[12px] text-muted-foreground">
-              Maintenez <Kbd>{VOICE_COMMAND_HINT}</Kbd> et dites par ex. « crée une pré-commande pour Lemoine, 4 kilos de bar pour jeudi ».
+              Maintenez <Kbd>{VOICE_COMMAND_HINT}</Kbd> (ou cliquez et maintenez le bouton Voix) et dites par ex. « crée une pré-commande pour Lemoine, 4 kilos de bar pour jeudi ».
             </div>
           ) : s.phase === "recording" && !run ? (
             <div className="flex items-center gap-2 text-[12px] text-muted-foreground"><Spinner size={12} />Ouverture du micro…</div>

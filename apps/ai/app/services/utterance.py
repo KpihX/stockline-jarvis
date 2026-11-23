@@ -13,6 +13,7 @@ lost. cancel() (barge-in, client gone) closes the provider stream.
 """
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import aclosing
 
@@ -28,6 +29,8 @@ class Utterance:
     def __init__(self, stt: STTClient, mime: str, hint: str | None, on_partial: Callable[[STTUpdate], Awaitable[None]]):
         self.stt, self.mime, self.hint, self.on_partial = stt, mime, hint, on_partial
         self.frames: list[bytes] = []
+        self.started_at = time.monotonic()
+        self.audio_seconds = 0.0  # set at audio_end: the audio is streamed in real time, so ≈ the length of the speech (STT billing)
         self.queue: asyncio.Queue[bytes | None] = asyncio.Queue()  # frames for the live stream, None = end of audio
         self.live = asyncio.create_task(self._listen()) if stt.streams else None
 
@@ -37,6 +40,7 @@ class Utterance:
 
     async def text(self) -> str:
         """Call at audio_end: the final transcript."""
+        self.audio_seconds = time.monotonic() - self.started_at
         self.queue.put_nowait(None)
         if self.live:
             try:

@@ -16,7 +16,9 @@ _client: httpx.AsyncClient | None = None
 def http_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        # keepalive_expiry: httpx drops idle connections after 5 s by default, which re-pays a TLS handshake on almost every
+        # turn of a conversation (a caller thinks for longer than that). The warm-up (services/warmup.py) relies on this.
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10), limits=httpx.Limits(keepalive_expiry=120))
     return _client
 
 

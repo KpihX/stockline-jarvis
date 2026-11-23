@@ -318,6 +318,11 @@ Chaque appel d'outil coûte un appel modèle de plus (le modèle relit tout le p
   `speaker.speak("Je regarde.")` dans `run_turn`. Encore plus rapide : un petit mp3 **pré-synthétisé** au démarrage
   (aucun appel TTS au moment voulu), à envoyer dans le segment audio du tour.
 
+**Fait dans ce dépôt (V0.2, mesuré le 2026-11-23).** Le filler est en code : au premier `ToolCallEvent`, si rien n'a été dit, `Speaker.say_filler()`
+joue un mp3 pré-synthétisé et varié (`services/warmup.py`) ; `VOICE_RULES` interdit maintenant au modèle d'écrire sa propre phrase d'attente (pas de double filler).
+Constat utile : le texte du modèle écrit avant un outil restait **retenu** jusqu'à la fin des outils (la phrase attend un espace qui n'arrive qu'après) ;
+`Speaker.flush()` à l'appel d'outil règle cela. `timings.firstSoundKind` dit si `totalMs` mesure un filler, `timings.answerMs` mesure la vraie réponse.
+
 **Honnêteté.** Un filler compte comme premier son, mais un « euh, je regarde » systématique s'entend. Variez,
 gardez-le court, et dites dans `DECISIONS.md` ce que mesure votre chiffre (premier son utile ou filler).
 
