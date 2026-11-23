@@ -1,0 +1,148 @@
+[
+  {
+    "id": "prl_0001",
+    "name": "Stations : −5 % sur les produits montagne",
+    "active": true,
+    "priority": 5,
+    "clientScope": {
+      "kind": "tag",
+      "tag": "stations"
+    },
+    "productScope": {
+      "kind": "tag",
+      "tag": "montagne"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 5
+    },
+    "validFrom": "2026-12-01",
+    "validTo": "2027-04-30",
+    "note": "Conditions de la saison d'hiver 2026-2027.",
+    "createdAt": "2026-04-08T07:00:00.000Z"
+  },
+  {
+    "id": "prl_0002",
+    "name": "Collectivités : −4 % sur la crèmerie",
+    "active": true,
+    "priority": 5,
+    "clientScope": {
+      "kind": "tag",
+      "tag": "collectivites"
+    },
+    "productScope": {
+      "kind": "tag",
+      "tag": "cremerie"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 4
+    },
+    "validFrom": "2025-01-01",
+    "createdAt": "2025-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "prl_0003",
+    "name": "Détaillants : coût + 24 % sur les fromages",
+    "active": true,
+    "priority": 10,
+    "clientScope": {
+      "kind": "tag",
+      "tag": "detaillants"
+    },
+    "productScope": {
+      "kind": "tag",
+      "tag": "fromages"
+    },
+    "method": {
+      "kind": "markup_pct",
+      "pct": 24
+    },
+    "validFrom": "2024-09-01",
+    "note": "Les fromagers gardent leur marge à la coupe.",
+    "createdAt": "2024-09-01T07:00:00.000Z"
+  },
+  {
+    "id": "prl_0004",
+    "name": "Volume : raclette en meule −4 % dès 30 kg",
+    "active": true,
+    "priority": 1,
+    "clientScope": {
+      "kind": "all"
+    },
+    "productScope": {
+      "kind": "product",
+      "productId": "prd_0027"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 4
+    },
+    "minQty": 30,
+    "validFrom": "2024-01-01",
+    "createdAt": "2024-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "prl_0005",
+    "name": "Volume : frites −3 % dès 100 kg",
+    "active": true,
+    "priority": 1,
+    "clientScope": {
+      "kind": "all"
+    },
+    "productScope": {
+      "kind": "product",
+      "productId": "prd_0068"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 3
+    },
+    "minQty": 100,
+    "validFrom": "2025-01-01",
+    "createdAt": "2025-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "prl_0006",
+    "name": "Fêtes 2026 : chapons −6 % dès 10 kg",
+    "active": true,
+    "priority": 2,
+    "clientScope": {
+      "kind": "all"
+    },
+    "productScope": {
+      "kind": "product",
+      "productId": "prd_0051"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 6
+    },
+    "minQty": 10,
+    "validFrom": "2026-12-01",
+    "validTo": "2026-12-31",
+    "note": "Opération chapons de Noël.",
+    "createdAt": "2026-04-11T07:00:00.000Z"
+  },
+  {
+    "id": "prl_0007",
+    "name": "Avant-saison 2026 : reblochon laitier −5 %",
+    "active": true,
+    "priority": 2,
+    "clientScope": {
+      "kind": "all"
+    },
+    "productScope": {
+      "kind": "product",
+      "productId": "prd_0026"
+    },
+    "method": {
+      "kind": "discount_pct",
+      "pct": 5
+    },
+    "validFrom": "2026-11-01",
+    "validTo": "2026-12-15",
+    "note": "Pour remplir les chambres froides des stations avant l'ouverture.",
+    "createdAt": "2026-11-01T08:00:00.000Z"
+  }
+]

@@ -1,0 +1,8 @@
+[
+{"id":"rte_0001","name":"Tournée Grenoble","zone":"Grenoble centre","driver":"Mickaël Roux","vehicle":"Renault Master frigo 20 m³ (GF-381-AR)","capacityKg":1300,"days":["mon","tue","wed","thu","fri","sat"],"departureTime":"06:00"},
+{"id":"rte_0002","name":"Tournée Agglo","zone":"Agglomération grenobloise & Voironnais","driver":"Kevin Moulin","vehicle":"Porteur 12 t frigo (FZ-207-GR)","capacityKg":4500,"days":["mon","tue","wed","thu","fri"],"departureTime":"06:00"},
+{"id":"rte_0003","name":"Tournée Grésivaudan","zone":"Grésivaudan & Chartreuse","driver":"Laurent Pellet","vehicle":"Iveco Daily frigo 16 m³ (FX-552-CH)","capacityKg":1100,"days":["mon","wed","fri"],"departureTime":"05:45"},
+{"id":"rte_0004","name":"Tournée Chamrousse","zone":"Chamrousse & Belledonne","driver":"Florian Vachon","vehicle":"Iveco Daily 4x4 frigo (GA-114-CB)","capacityKg":1000,"days":["mon","tue","wed","thu","fri","sat"],"departureTime":"05:15"},
+{"id":"rte_0005","name":"Tournée Oisans","zone":"Oisans (Alpe d'Huez, Les Deux Alpes)","driver":"Romain Didier","vehicle":"Porteur 4x4 frigo 10 t (FV-736-OI)","capacityKg":4000,"days":["mon","tue","wed","thu","fri","sat"],"departureTime":"04:45"},
+{"id":"rte_0006","name":"Tournée Vercors","zone":"Vercors","driver":"Florian Vachon","vehicle":"Iveco Daily 4x4 frigo (GA-114-CB)","capacityKg":1000,"days":["tue","thu","sat"],"departureTime":"05:15"}
+]

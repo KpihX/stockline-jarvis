@@ -1,0 +1,247 @@
+[
+  {
+    "id": "sup_0001",
+    "name": "Fromagerie Perrier-Gaudin",
+    "contacts": [
+      {
+        "name": "Jean-Pierre Perrier-Gaudin",
+        "role": "Affineur, gérant",
+        "phone": "04 79 32 18 60",
+        "email": "jp@fromagerie-perrier-gaudin.fr"
+      },
+      {
+        "name": "Sandrine Mollard",
+        "role": "ADV",
+        "phone": "04 79 32 18 62",
+        "email": "commandes@fromagerie-perrier-gaudin.fr"
+      }
+    ],
+    "city": "Albertville",
+    "categories": [
+      "fromages"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 600,
+    "notes": "Affineur et grossiste en fromages de Savoie : reblochon, raclette, beaufort, tomme, abondance, mélange fondue. Cave d'affinage à Albertville. Fournisseur historique depuis la création.",
+    "tags": [
+      "fromager"
+    ]
+  },
+  {
+    "id": "sup_0002",
+    "name": "Laiterie Coopérative du Vercors",
+    "contacts": [
+      {
+        "name": "Hélène Bertrand",
+        "role": "Responsable commerciale",
+        "phone": "04 76 95 11 40",
+        "email": "h.bertrand@laiterie-vercors.fr"
+      }
+    ],
+    "city": "Villard-de-Lans",
+    "categories": [
+      "cremerie",
+      "fromages"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 250,
+    "notes": "Coopérative laitière du plateau : crème, beurre, lait, yaourts, fromage blanc, bleu du Vercors-Sassenage et saint-marcellin. Tarif annuel, livraison lundi et jeudi.",
+    "tags": [
+      "producteur",
+      "local"
+    ]
+  },
+  {
+    "id": "sup_0003",
+    "name": "Grenoble Primeurs Distribution",
+    "contacts": [
+      {
+        "name": "Karim Belkacem",
+        "role": "Commercial au carreau",
+        "phone": "04 76 09 44 21"
+      }
+    ],
+    "city": "Grenoble (MIN)",
+    "categories": [
+      "fruits-legumes"
+    ],
+    "leadTimeDays": 1,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 200,
+    "notes": "Grossiste primeur du MIN de Grenoble : tout le frais d'import et de France. Pascal y passe chaque nuit. Prix au jour, qualité variable selon les arrivages.",
+    "tags": [
+      "grossiste"
+    ]
+  },
+  {
+    "id": "sup_0004",
+    "name": "Les Maraîchers de la Bièvre",
+    "contacts": [
+      {
+        "name": "Gilles Buisson",
+        "role": "Président du groupement",
+        "phone": "04 74 20 37 15"
+      }
+    ],
+    "city": "La Côte-Saint-André",
+    "categories": [
+      "fruits-legumes"
+    ],
+    "leadTimeDays": 1,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 150,
+    "notes": "Groupement de maraîchers de la plaine de la Bièvre : salades, poireaux, courges, oignons, carottes. Argument local pour les cantines (Egalim).",
+    "tags": [
+      "producteur",
+      "local"
+    ]
+  },
+  {
+    "id": "sup_0005",
+    "name": "Vergers et Noix du Royans",
+    "contacts": [
+      {
+        "name": "Odile Faure",
+        "role": "Gérante",
+        "phone": "04 76 38 52 04",
+        "email": "odile@vergers-royans.fr"
+      }
+    ],
+    "city": "Saint-Marcellin",
+    "categories": [
+      "fruits-legumes",
+      "epicerie"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 200,
+    "notes": "Arboriculteurs du Royans et de Savoie : pommes, poires et cerneaux de noix de Grenoble AOP. Fiables, calibrage soigné.",
+    "tags": [
+      "producteur",
+      "local"
+    ]
+  },
+  {
+    "id": "sup_0006",
+    "name": "Viandes Chartreuse Distribution",
+    "contacts": [
+      {
+        "name": "Franck Rey",
+        "role": "Commercial",
+        "phone": "04 76 50 28 77",
+        "email": "f.rey@viandes-chartreuse.fr"
+      },
+      {
+        "name": "Nadia Ouali",
+        "role": "ADV",
+        "phone": "04 76 50 28 70"
+      }
+    ],
+    "city": "Voreppe",
+    "categories": [
+      "boucherie"
+    ],
+    "leadTimeDays": 1,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 400,
+    "notes": "Atelier de découpe et grossiste en viande : bœuf, veau, porc, agneau, tranché pierrade à la demande. Livraison chaque nuit sauf week-end.",
+    "tags": [
+      "grossiste"
+    ]
+  },
+  {
+    "id": "sup_0007",
+    "name": "Volailles du Chambaran",
+    "contacts": [
+      {
+        "name": "Marion Guillot",
+        "role": "Responsable commerciale",
+        "phone": "04 76 36 21 90",
+        "email": "marion@volailles-chambaran.fr"
+      }
+    ],
+    "city": "Roybon",
+    "categories": [
+      "volailles"
+    ],
+    "leadTimeDays": 1,
+    "paymentTermsDays": 30,
+    "minOrderAmount": 250,
+    "notes": "Abattoir de volailles fermières des Chambaran : poulets Label Rouge, pintades, chapons à Noël, plus négoce de suprêmes, dinde et magrets.",
+    "tags": [
+      "producteur",
+      "local"
+    ]
+  },
+  {
+    "id": "sup_0008",
+    "name": "Salaisons des Bauges",
+    "contacts": [
+      {
+        "name": "Joël Bouvier",
+        "role": "Salaisonnier, gérant",
+        "phone": "04 79 54 83 12"
+      }
+    ],
+    "city": "Le Châtelard",
+    "categories": [
+      "charcuterie"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 45,
+    "minOrderAmount": 300,
+    "notes": "Salaisonnier artisanal des Bauges : diots, lardons, jambon cru de Savoie, saucisson, viande séchée, plateaux raclette. Fumoir maison, capacité limitée en plein hiver.",
+    "tags": [
+      "producteur",
+      "local"
+    ]
+  },
+  {
+    "id": "sup_0009",
+    "name": "Alpes Épicerie Négoce",
+    "contacts": [
+      {
+        "name": "Christophe Lacroix",
+        "role": "Commercial grands comptes",
+        "phone": "04 79 70 61 33",
+        "email": "c.lacroix@alpes-epicerie.fr"
+      }
+    ],
+    "city": "Chambéry",
+    "categories": [
+      "epicerie"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 45,
+    "minOrderAmount": 500,
+    "notes": "Grossiste en épicerie sèche, huiles, pâtes, vins de cuisine et jambon cuit. Commandes le mardi et le jeudi, livré J+2.",
+    "tags": [
+      "grossiste"
+    ]
+  },
+  {
+    "id": "sup_0010",
+    "name": "Surgelés Rhône-Alpes Logistique",
+    "contacts": [
+      {
+        "name": "Laetitia Morin",
+        "role": "ADV",
+        "phone": "04 74 94 70 25",
+        "email": "adv@surgeles-ra.fr"
+      }
+    ],
+    "city": "Saint-Quentin-Fallavier",
+    "categories": [
+      "surgeles"
+    ],
+    "leadTimeDays": 2,
+    "paymentTermsDays": 45,
+    "minOrderAmount": 800,
+    "notes": "Plateforme de surgelés : frites, steaks hachés, légumes, glaces, pâtisseries, pain précuit. Deux livraisons par semaine, porteur −18 °C.",
+    "tags": [
+      "grossiste"
+    ]
+  }
+]

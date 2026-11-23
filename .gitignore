@@ -17,8 +17,8 @@ __pycache__
 *.db-*
 apps/*/data/
 
-# company data (shipped in your team zip; too big for git)
-data/seed/
+# company data: data/seed/ (96 MB, fictional) IS committed in this PRIVATE repo so that a clone runs with `make setup`
+# (the kit's default ignored it; team decision 2026-11-23). Do not make this repo public without removing it.
 
 .DS_Store
 

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "fruits-legumes",
+    "label": "Fruits et légumes"
+  },
+  {
+    "id": "cremerie",
+    "label": "Crèmerie et œufs"
+  },
+  {
+    "id": "fromages",
+    "label": "Fromages de Savoie et du Dauphiné"
+  },
+  {
+    "id": "boucherie",
+    "label": "Boucherie (bœuf, veau, porc, agneau)"
+  },
+  {
+    "id": "volailles",
+    "label": "Volailles"
+  },
+  {
+    "id": "charcuterie",
+    "label": "Charcuterie et salaisons de montagne"
+  },
+  {
+    "id": "epicerie",
+    "label": "Épicerie"
+  },
+  {
+    "id": "surgeles",
+    "label": "Surgelés"
+  }
+]
