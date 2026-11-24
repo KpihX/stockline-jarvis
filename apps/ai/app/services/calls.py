@@ -734,7 +734,7 @@ async def reset_test_state() -> dict[str, Any]:
     _copilot_tasks.clear()
     with _conn() as con:
         con.execute("DELETE FROM call_sessions")
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         resp = await client.post(f"{settings.erp_api_url.rstrip('/')}/api/admin/reset")
         resp.raise_for_status()
         erp_res = resp.json()
