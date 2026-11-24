@@ -138,10 +138,11 @@ LLM_API_KEY=<la valeur de la ligne # ANTHROPIC_KEY=…>
 
 | Rôle | Fournisseurs | Variables |
 |---|---|---|
-| LLM (le cerveau) | `openai`, `anthropic`, `gemini`, `openai-compatible`, `mock` | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` |
-| Transcription (STT) | `soniox`, `deepgram`, `gradium`, `openai`, `mock` | `STT_PROVIDER`, `STT_MODEL`, `STT_API_KEY` |
+| LLM (le cerveau) | `opencode-go`, `nvidia`, `anthropic`, `deepseek`, `openai`, `gemini`, `openai-compatible`, `mock` (chaîne ordonnée possible, ex. `opencode-go,nvidia,anthropic`) | `LLM_PROVIDER`, `LLM_FALLBACKS`, `LLM_MODEL`, `LLM_API_KEY`, `OPENCODE_API_KEY`, `NVIDIA_API_KEY`, `ANTHROPIC_API_KEY` |
+| Transcription (STT) | `soniox`, `deepgram`, `gradium`, `openai`, `nvidia`, `mock` | `STT_PROVIDER`, `STT_MODEL`, `STT_API_KEY` |
 | Synthèse vocale (TTS) | `elevenlabs`, `gradium`, `openai`, `mock` | `TTS_PROVIDER`, `TTS_MODEL`, `TTS_VOICE`, `TTS_API_KEY` |
 | Jev (modèle de décision, optionnel) | TypeSafe AI | `JEV_API_KEY` |
+| Appels WhatsApp VoIP (`/calls`, `/settings`) | Pont Baileys + WebRTC (`apps/wa`) | `WA_URL`, `WHATS_PROXY_STATE_DIR`, `ICE_SERVERS` |
 
 Jev n'est pas un LLM : il répond vite à des questions fermées (choix, score, oui/non) et s'utilise **à côté** du
 LLM. L'agent de base ne s'en sert pas : c'est à vous de le brancher (voir

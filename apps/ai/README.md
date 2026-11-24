@@ -39,11 +39,11 @@ app/
   config.py      env vars (+ repo-root .env), defaults
   cli.py         terminal chat
   schemas/       chat.py (messages, ChatStreamEvent), command.py, voice.py (WS messages), service.py
-  clients/       base.py (interfaces), factory.py, one file per provider, mock_llm.py, mock_speech.py, http.py, ws.py, audio.py
-  agent/         loop.py (run_agent), prompts.py, jev_examples.py (copyable Jev helpers, not wired in)
-  tools/         registry.py (@tool), erp.py, catalog.py, context.py, history.py, orders.py
-  routers/       health.py, chat.py, command.py, speech.py, voice.py, sse.py
-  services/      command.py, voice_session.py
+  clients/       base.py (interfaces), factory.py, presets.py, fallback.py, one file per provider, mock_llm.py, mock_speech.py, http.py, ws.py, audio.py
+  agent/         loop.py (run_agent), prompts.py, jev_examples.py, access.py, sanitize.py
+  tools/         registry.py (@tool), erp.py, catalog.py, context.py, history.py, orders.py, sessions.py, vocabulary.py, identity.py
+  routers/       health.py, chat.py, command.py, speech.py, voice.py, calls.py, sessions.py, vocab.py, sse.py
+  services/      command.py, voice_session.py, calls.py, sessions.py, suggestions.py, jev_router.py, memory.py, compaction.py, warmup.py, vocabulary.py
 tests/           adapters against recorded-style SSE, tool schemas, mock parsing
 ```
 
@@ -136,6 +136,10 @@ Provider notes: the Anthropic adapter keeps the model's `thinking` blocks and se
 |---|---|
 | `GET /health` | `{ ok, llm: {provider, model}, stt: {provider}, tts: {provider}, erpApiUrl }` |
 | `GET /tools` | `ToolInfo[]` |
+| `GET /jev/stats` | cumulative TypeSafe Jev telemetry (`p50_ms`, `p90_ms`, `errors` per primitive) |
+| `GET /calls/active`, `/calls/stream`, `/calls/{id}/*`, `/wa/*` | WhatsApp VoIP WebRTC Call Desk & Baileys QR pairing (`manager` & `admin` only) |
+| `POST /calls/reset` | wipes `call_sessions` and resets ERP seed while preserving WhatsApp pairing & phone bindings |
+| `GET/POST/PATCH/DELETE /sessions*` | persistent SQLite session store shared between Assistant (`POST /chat`) and Voix (`WS /voice`) |
 | `POST /chat` | `ChatRequest` → SSE, one `ChatStreamEvent` JSON per `data:` line |
 | `POST /command[?speak=1]` | one stateless, act-first voice command: raw audio body (header `x-mock-text` for the mock STT) or JSON `{text}` → SSE of `CommandStreamEvent`: `transcript` → tool/text events → `navigate` (when the user asked to see something) → `speech` (base64, `speak=1`) → `done` with `timings` |
 | `POST /stt` | raw audio body (`content-type` = mime) → `{text, ms}`; header `x-stt-hint` (or `x-mock-text`) |
@@ -216,10 +220,12 @@ if jev:
 | `AI_PORT` | 4100 | |
 | `ERP_API_URL` | http://localhost:4000 | local mode; Docker sets `http://backend:4000` |
 | `DATA_DIR` | `./data` (team zip) | relative to the repo root; company context in `DATA_DIR/context/*.md`. Docker mounts it at `/data` |
-| `LLM_PROVIDER` | mock | `openai` \| `openai-compatible` \| `anthropic` \| `gemini` \| `mock` |
-| `LLM_MODEL` | per provider | openai `gpt-4.1-mini`, anthropic `claude-sonnet-5-5`, gemini `gemini-2.5-flash`; required for openai-compatible |
-| `LLM_API_KEY` | | optional for local openai-compatible servers |
-| `LLM_BASE_URL` | provider default | required for openai-compatible: Groq `https://api.groq.com/openai/v1`, Mistral `https://api.mistral.ai/v1`, OpenRouter `https://openrouter.ai/api/v1`, Ollama `http://localhost:11434/v1` |
+| `LLM_PROVIDER` | mock | `opencode-go` \| `nvidia` \| `anthropic` \| `deepseek` \| `openai` \| `gemini` \| `openai-compatible` \| `mock` (or comma-separated fallback chain, e.g. `opencode-go,nvidia,anthropic`) |
+| `LLM_FALLBACKS` | | optional comma-separated fallback providers appended after `LLM_PROVIDER` |
+| `LLM_MODEL` | per provider | opencode-go `deepseek-v4.1-flash`, nvidia `nvidia/nemotron-3-ultra-550b-a55b`, anthropic `claude-sonnet-5-5`, openai `gpt-4.1-mini`, gemini `gemini-2.5-flash` |
+| `LLM_API_KEY` | | optional for local openai-compatible servers (in fallback chains, `OPENCODE_API_KEY` / `NVIDIA_API_KEY` / `ANTHROPIC_API_KEY` avoid key collisions) |
+| `LLM_BASE_URL` | provider default | required for openai-compatible: OpenCode Go `https://opencode.ai/inference/go/openai/v1`, NVIDIA `https://integrate.api.nvidia.com/v1`, Groq, Mistral, OpenRouter, Ollama |
+| `LLM_INCLUDE_USAGE` | auto | optional `1`/`0` override for `stream_options.include_usage` |
 | `LLM_EFFORT` | low | anthropic only (`output_config.effort`): low keeps latency down |
 | `AGENT_MAX_STEPS` | 8 | model ↔ tools round-trips per turn |
 | `JEV_API_KEY` | | optional; empty → `get_jev_client()` is None |

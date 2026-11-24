@@ -4,7 +4,7 @@
 >
 > **Thèse directrice — La Proactivité comme architecture :** un agent vocal utile dans un ERP ne subit pas l'appel comme un chatbot passif ; il **précharge** l'identité et les habitudes avant la première phrase, **anticipe** la latence par filler précoce et routage rapide (Jev), **alerte** sur les pièges métier (saison fermée, quantité anormale, rupture, impayé) par règles backend déterministes, **apprend** le vocabulaire client uniquement sur preuve confirmée, et **unifie** le tableau de bord, l'Assistant et la Voix sur une mémoire persistante.
 
-Living document. Numbers in §4, §5.4, §6.4, §7–§9 are **measured** (`scripts/bench/`, `scripts/bench/results.md`, live Docker stack captures); everything else is a decision or a hypothesis and is labelled as such. Last update: 2026-11-24.
+Living document. Numbers in §4, §5.4, §6.4, §7–§10 are **measured** (`scripts/bench/`, `scripts/bench/results.md`, live Docker stack & real WhatsApp VoIP call captures); everything else is a decision or a hypothesis and is labelled as such. Last update: 2026-11-24.
 
 ## 1. Le problème (use case validé le 2026-11-23)
 
@@ -142,7 +142,7 @@ l'ERP ; le nom canonique vient de l'ERP, pas du modèle. Chaque refus renvoie un
 
 1. **Biais STT.** Dès que l'appelant est identifié (un appel d'outil `get_client`, `create_draft_order`, `get_price`… sur un `cli_…`), `Conversation.client_id` est posé et sa fiche
    est préchargée en tâche de fond. L'indice de **chaque énoncé** est reconstruit à `audio_start` : `terms` du client **en premier**, puis le global (budget `MAX_TERMS_CHARS=6000` de
-   Soniox, premiers termes servis d'abord). Premier tour = global seul. Cache froid ⇒ on attend au plus 350 ms puis on part en global seul (jamais de départ retardé). Les formes
+   Soniox initialement — porté à `10000` en §9 après mesure réelle sur `data/seed`, premiers termes servis d'abord). Premier tour = global seul. Cache froid ⇒ on attend au plus 350 ms puis on part en global seul (jamais de départ retardé). Les formes
    *mal entendues* ne sont **jamais** envoyées comme termes (elles biaiseraient vers l'erreur) : seuls les noms canoniques le sont.
 2. **Résolveur** sur le transcript final, en pur Python : bloc `[Lexique : aide à l'écoute, ce n'est pas ce que l'appelant a dit]` ajouté **à la fin** du message de l'appelant (le préfixe en cache
    reste identique ; le prompt système change **une fois**). Le transcript montré à l'appelant et gardé en historique reste brut. Seuls les quasi-homophones, les ambiguïtés et les clients entendus
@@ -353,16 +353,47 @@ Les surfaces **Assistant** (`⌘J`) et **Voix** (`/voice`) restent distinctes da
 
 ---
 
-## 9. Synthèse des résultats vérifiés (avant soumission)
+## 9. Appels WhatsApp VoIP temps réel (`/calls`), LLM agnostique et repli ordonné (2026-11-24)
+
+### 9.1 Architecture de la centrale d'appels WhatsApp (`apps/wa` + `apps/ai/app/services/calls.py`)
+
+Pour dépasser la simulation push-to-talk locale et prouver l'agent sur un **vrai téléphone WhatsApp**, nous avons intégré un 4e service Docker (`apps/wa`, Node 22 + `tsc`, port `3001` + UDP `40000-40020`) relié à `apps/ai` et à l'interface `/calls` / `/settings` :
+
+- **Pont VoIP & WebRTC pure TypeScript :** Baileys VoIP (auth persistée dans le volume Docker `wa-state`) + `werift` Opus 48 kHz ↔ PCM 16 kHz mono + segmenteur VAD RMS bicanal (`client` WhatsApp et `manager` navigateur séparés), avec appairage par **QR Code live** dans `/settings` et table `phone_client_map` dans `$AI_STATE_DIR/calls.db` (normalisation FR `337…` / `07…`).
+- **Traitement asynchrone sans blocage webhook :** `POST /webhooks/call` (`call.utterance`) lance `asyncio.create_task` pour exécuter en parallèle Soniox STT, le lexique phonétique (`annotate`) et Jev `route_turn`, puis publie `call.transcript` par SSE (`GET /ai/calls/stream`).
+- **Copilote J.A.R.V.I.S coalescé & garde d'abstention :** `_schedule_copilot` fusionne les rafales d'énoncés par appel (au plus 1 relance sur le dialogue complet le plus récent, évitant l'empilement de requêtes LLM), impose l'abstention ERP tant qu'aucun produit + quantité explicite n'est prononcé, passe les `ord_…` existants pour `add_order_line`, intercepte `ErrorEvent` pour ne jamais geler silencieusement la note copilote, et expose un bouton **Confirmer** 1-clic (`POST /ai/calls/{id}/orders/{ord}/confirm`) ainsi que **`Réinit tests (ERP + Appels)`** (`POST /ai/calls/reset`, préservant la session QR WhatsApp et les associations téléphoniques).
+- **Contrôle d'accès strict :** `/calls`, `/settings` (onglet WhatsApp), `WhatsAppCallsWidget` sur le Dashboard et toutes les routes `/calls/*` / `/wa/*` sont réservés à `manager` et `admin` (`HTTP 403` pour `client`, `supplier` et `unknown`).
+
+### 9.2 Client OpenAI-compatible généraliste et repli ordonné (`opencode-go → nvidia → anthropic`)
+
+- **OpenCode Go v2 (`apps/ai/app/clients/presets.py`, `openai.py`) :** point d'accès `https://opencode.ai/inference/go/openai/v1` (`OPENCODE_API_KEY`, modèle par défaut `deepseek-v4.1-flash`). Notre sonde live a révélé que OpenCode Go v2 rejette toute requête sans en-tête d'affinité `x-opencode-session` (`HTTP 400 MissingSessionID`) ; `OpenAILLM` l'injecte désormais automatiquement sur tout hôte `opencode.ai` (avec `user-agent` dédié), et gère aussi bien les flux SSE que les réponses `application/json` non-streamées, les blocs `content` en liste et les `tool_calls` sans `index`.
+- **Chaîne de repli ordonnée (`apps/ai/app/clients/fallback.py`, `factory.py`) :** `LLM_PROVIDER=opencode-go,nvidia,anthropic` (ou `LLM_FALLBACKS`) instancie une chaîne `FallbackLLM` qui isole strictement les clés (une clé `sk-ant-…` dans `LLM_API_KEY` ne fuite jamais vers `opencode-go` ou `nvidia`) et bascule immédiatement sur le fournisseur suivant si un fournisseur échoue avant d'émettre du texte ou un appel d'outil (`401/402/403/quota` → cooldown `300 s` ; `429/5xx/réseau` → cooldown `25 s`).
+
+### 9.3 Mesures réelles sur deux vrais appels WhatsApp (`33745717350` ↔ `33605957785`)
+
+| Essai réel | Transport WebRTC / Baileys | STT & Jev mesurés | Comportement ERP & leçons apprises |
+|---|---|---|---|
+| **Appel #1** (`00C8827F…`, 1 min 28 s, Nemotron) | `1983/1983` chunks 16 kHz · `3344` paquets RTP · **`0` perte** · 0 écho | Jev `165–190 ms` (`p50 = 183,7 ms`, 0 erreur) | Création `CMD-2026-007299` + alerte `season_closed` ; **2 défauts révélés en réel** : (a) `MAX_TERMS_CHARS=6000` tronquait tout `JARGON` après les 401 entités (`6 516` car.) → *« 1er d'exemple »* ; (b) rafale `429` NVIDIA + `ErrorEvent` ignoré bloquant la confirmation finale. |
+| **Correctifs & E2E simulé** (`browser-proxy`, OpenCode Go) | Simulation 16 kHz WebRTC Opus 48 kHz (`connected`) | `MAX_TERMS_CHARS=10000` (**478 termes** envoyés, `"décembre"` présent) · Jev `278 ms` + `159 ms` | Abstention validée (0 brouillon sur question vague, tarifs négociés cités), création `408,00 € HT` (`season_closed`), confirmation 1-clic → `Confirmée`, reset 1-clic validé. |
+| **Appel #2** (`00788FB0…`, 1 min 25 s, **OpenCode Go `deepseek-v4.1-flash`**) | `1677/1677` chunks 16 kHz · `3956` paquets RTP · **`0` perte** · 0 écho | Jev `route_turn` **`138–184 ms`** + `score_claim` **`242 ms`** · **0 erreur** · `"premier décembre"` et `"mi-décembre"` transcrits juste | Abstention sur question ouverte (`seq 4`), création `CMD-2026-007299` avec `season_closed` (`seq 7`), **confirmation vocale autonome (`confirmed`, `289,25 € HT`)** et **mémorisation contexte ERP (`ctx_1105` : « Ouverture anticipée saison 2026-2027 »)**. |
+
+**Limites honnêtes (appels WhatsApp) :**
+- Sur l'appel #2, la confirmation vocale et l'écriture de contexte (`confirm_order` + `save_context`) ont pris **~16 à 23 s** après le raccroché sur `deepseek-v4.1-flash` (le coalescing a terminé et publié l'état sans perte, mais il faut attendre l'affichage `Confirmée` en démo ou privilégier un modèle plus sec).
+- Une hésitation orale courte (`"Mets-moi, euh, 2, 5 kilos"`) reste transcrite en `2,5 kg` ; privilégier des quantités énoncées en toutes lettres (`cinquante kilos`, `dix kilos`) dans `TEST_WHATSAPP_CALL.md`.
+- `.env` reste strictement exclu de Git (`FAQ.md` / `BRIEF.md`), le dépôt reste privé et partagé aux comptes Stockline.
+
+---
+
+## 10. Synthèse des résultats vérifiés (avant soumission)
 
 | Axe | Métrique | Résultat mesuré | Source / Vérification |
 |---|---|---|---|
 | **Fast** | 1er son vocal (filler précoce) | **1,23 s** médiane audio (`audio_end`), **21–39 ms** après transcript final | `scripts/bench/bench.py` (A/B) + `browser-proxy` live |
 | **Fast** | Finalisation STT temps réel | **225 ms p50** (Soniox cadencé 100 ms, vs 2,86 s en rafale) | `tmp/stt-lab/` (20 phrases, 62 entités) |
-| **Fast** | Micro-décisions Jev | **126–194 ms** (`route`, `disambig`, `is_yes`, `score_claim`) | Appel live conteneur `ai` (`jev-latest`) |
+| **Fast** | Micro-décisions Jev | **126–194 ms** (`route`, `disambig`, `is_yes`, `score_claim` live **242 ms**) | Appel live conteneur `ai` (`jev-latest`) + appel WhatsApp réel |
 | **Fast** | Résolveur phonétique | **2,2 ms** médiane (9–20 ms dans Docker) | `scripts/bench/vocab_eval.py` + `GET /vocab/resolve` |
-| **Smart** | Rappel entités métier | **62/62 (100 %)** avec vocab + résolveur (vs 54/62 sans) · **0** faux positif | `scripts/bench/vocab_eval.py` (80 transcripts + 12 négatifs) |
-| **Smart** | Garde-fous plausibilité ERP | `season_closed` (**0,01 %** FP / 24 141 cmd) · `unusual_quantity` (**0,001 %** FP / 166 273 lignes) | `apps/backend/app/services/orders.py` + `CMD-2026-007300` live |
-| **Smart** | Sécurité & 5 rôles | `409 single_admin` · blocage cross-rôle client/fournisseur/inconnu · **59 + 384** tests verts | `pytest` (59 backend + 384 AI) + E2E `browser-proxy` |
-| **Natural** | Coût & continuité | **0,0018–0,0073 €** / tour Nemotron (`0,009–0,017 €` Sonnet) · session unifiée Voix ↔ Assistant | Logs `[turn]` live + `browser-proxy` |
+| **Smart** | Rappel entités métier | **62/62 (100 %)** avec vocab + résolveur (vs 54/62 sans) · **0** faux positif · **478** termes STT (`MAX_TERMS_CHARS=10000`) | `scripts/bench/vocab_eval.py` + appel WhatsApp réel #2 |
+| **Smart** | Garde-fous plausibilité ERP | `season_closed` (**0,01 %** FP / 24 141 cmd) · `unusual_quantity` (**0,001 %** FP / 166 273 lignes) | `apps/backend/app/services/orders.py` + `CMD-2026-007299` live |
+| **Smart** | Sécurité & 5 rôles | `409 single_admin` · blocage cross-rôle (`403` sur `/calls` & `/wa` pour client/fournisseur) · **59 + 391** tests verts | `pytest` (59 backend + 391 AI) + E2E `browser-proxy` |
+| **Natural** | VoIP WhatsApp réel & Résilience | **2 appels réels (`0` perte RTP)** · confirmation vocale + contexte `ctx_1105` · bascule **`opencode-go → nvidia → anthropic`** · **0,0018–0,0073 €** / tour | Appels réels `337` ↔ `336` + `FallbackLLM` live |
 

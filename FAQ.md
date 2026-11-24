@@ -124,9 +124,7 @@ moins cher) ou `claude-opus-5-5` (le plus fort, plus lent). Puis `make restart`.
 plus rapide mais faux ne gagne pas.
 
 **Puis-je utiliser un autre fournisseur ?**
-Le code en supporte d'autres (OpenAI, Gemini, Deepgram, Gradium, tout endpoint compatible OpenAI), mais nous ne
-fournissons de clés que pour **Anthropic** (LLM), **Soniox** (STT), **ElevenLabs** (TTS) et **Jev**. Avec votre
-propre clé, c'est permis : dites-le dans `DECISIONS.md`.
+Le code en supporte d'autres (`opencode-go`, `nvidia`, `deepseek`, OpenAI, Gemini, Deepgram, Gradium, tout endpoint compatible OpenAI) ainsi qu'une **chaîne de repli ordonnée** (`LLM_PROVIDER=opencode-go,nvidia,anthropic` avec `OPENCODE_API_KEY`, `NVIDIA_API_KEY` et `LLM_API_KEY`/`ANTHROPIC_API_KEY`), mais Stockline ne fournit de clés que pour **Anthropic** (LLM), **Soniox** (STT), **ElevenLabs** (TTS) et **Jev**. Avec votre propre clé, c'est permis : dites-le dans `DECISIONS.md`.
 
 <a id="livrables"></a>
 ## Livrables et démo

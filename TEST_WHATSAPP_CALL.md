@@ -17,40 +17,45 @@ Ce guide est calibré pour maximiser la précision STT (Soniox + lexique phonét
 ## 1. Déroulé du dialogue (≈ 45 secondes)
 
 ### Étape 1 — Sonnerie & Identification automatique
+
 - **Client (`337`)** : appelle le numéro **`33605957785`** sur WhatsApp.
 - **Sur `/calls` (PC)** : le bandeau vert apparaît automatiquement avec **Le Refuge Payet (`33745717350` · `cli_0082`)**.
 - **Gestionnaire (PC)** : clique sur **`Décrocher`** (le statut passe à `WebRTC Opus 48 kHz (connected)`).
 
 ### Étape 2 — Ouverture & Question ambiguë (vérifie l'abstention ERP + Jev `read_only`)
+
 - **Gestionnaire (PC)** :
-  > *« Allô bonjour, Alpes Restauration à l'appareil, c'est Le Refuge Payet ? »*
+  > _« Allô bonjour, Alpes Restauration à l'appareil, c'est Le Refuge Payet ? »_
 - **Client (`337`, articulé, courte pause après la phrase)** :
-  > *« Bonjour, oui c'est Le Refuge Payet. Je voudrais savoir ce que vous avez comme fromage à raclette ou comme crème. »*
+  > _« Bonjour, oui c'est Le Refuge Payet. Je voudrais savoir ce que vous avez comme fromage à raclette ou comme crème. »_
 - **Ce que vous devez observer à l'écran** :
   - Puce **`Jev <ms> ms`** sur la bulle client (`info:read_only` ou `order:read_only`).
   - **Aucune commande créée** dans l'ERP (règle d'abstention respectée) : le Copilote J.A.R.V.I.S propose les références exactes et demande la quantité.
 
 ### Étape 3 — Commande hors saison (vérifie `create_draft_order` + alerte `season_closed`)
+
 - **Gestionnaire (PC)** :
-  > *« Nous avons de la raclette en meule au lait cru et de la raclette tranchée en barquette d'un kilo. Qu'est-ce que je vous note et pour quelle date ? »*
+  > _« Nous avons de la raclette en meule au lait cru et de la raclette tranchée en barquette d'un kilo. Qu'est-ce que je vous note et pour quelle date ? »_
 - **Client (`337`)** :
-  > *« Mets-moi deux cents kilos de frites surgelées et vingt kilos de raclette tranchée pour le premier décembre. »*
+  > _« Mets-moi cinquante kilos de frites surgelées et vingt kilos de raclette tranchée pour le premier décembre. »_
 - **Ce que vous devez observer à l'écran** :
   - Puce **`Jev <ms> ms · order:write`**.
-  - Le Copilote J.A.R.V.I.S crée **une pré-commande brouillon (`CMD-2026-…`)** en direct avec le tarif négocié (`2,04 €/kg` sur les frites).
-  - Un **bandeau ambre `⚠ season_closed`** apparaît immédiatement (*Le Refuge Payet est habituellement ouvert de mi-décembre à mi-avril*) et la carte du brouillon est cliquable.
+  - Le Copilote J.A.R.V.I.S crée **une pré-commande brouillon (`CMD-2026-…`)** en direct avec le tarif négocié (`2,10 €/kg` sur 50 kg de frites, `2,04 €/kg` à partir de 200 kg).
+  - Un **bandeau ambre `⚠ season_closed`** apparaît immédiatement (_Le Refuge Payet est habituellement ouvert de mi-décembre à mi-avril_) et la carte du brouillon affiche le total HT et un bouton **`Confirmer`** 1-clic.
 
 ### Étape 4 — Prévention & Confirmation (optionnel, ajout de ligne sur la même commande)
+
 - **Gestionnaire (PC)** :
-  > *« Je vous préviens juste : sur l'ERP vous êtes notés fermés jusqu'à mi-décembre, on maintient bien le mardi premier décembre ? »*
+  > _« Je vous préviens juste : sur l'ERP vous êtes notés fermés jusqu'à mi-décembre, on maintient bien le mardi premier décembre ? »_
 - **Client (`337`)** :
-  > *« Oui c'est bon, on ouvre plus tôt cette année, confirme la commande s'il te plaît. »*
-- **Gestionnaire (PC)** : clique sur **`Raccrocher`**, puis vérifie **`Accueil`** (Dashboard) ou **`Commandes`** (`/orders`) : la commande et l'alerte `season_closed` sont enregistrées dans l'ERP sous l'acteur `J.A.R.V.I.S · Appel Le Refuge Payet`.
+  > _« Oui c'est bon, on ouvre plus tôt cette année, confirme la commande s'il te plaît. »_
+- **Gestionnaire (PC)** : attends que la carte passe à **`Confirmée`** (≈ 5–15 s) avant de cliquer sur **`Raccrocher`**, puis vérifie **`Accueil`** (Dashboard) ou **`Commandes`** (`/orders`) : la commande et l'alerte `season_closed` sont enregistrées dans l'ERP sous l'acteur `J.A.R.V.I.S · Appel Le Refuge Payet`.
 
 ---
 
 ## 2. Variantes faciles à prononcer pour un 2e essai
 
 Après avoir cliqué sur **`Réinit tests (ERP + Appels)`**, vous pouvez aussi tester ces phrases très nettes pour le STT :
-- *« Bonjour, c'est Le Refuge Payet, je veux commander cinquante kilos de carottes des sables et dix litres de crème liquide pour jeudi. »*
-- *« Bonjour, c'est Le Refuge Payet, mets-moi comme d'habitude pour ma prochaine tournée. »* *(déclenche le panier habituel préchargé depuis l'historique saisonnier)*
+
+- _« Bonjour, c'est Le Refuge Payet, je veux commander cinquante kilos de carottes des sables et dix litres de crème liquide pour jeudi. »_
+- _« Bonjour, c'est Le Refuge Payet, mets-moi comme d'habitude pour ma prochaine tournée. »_ _(déclenche le panier habituel préchargé depuis l'historique saisonnier)_

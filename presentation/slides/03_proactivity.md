@@ -19,12 +19,12 @@ outcome: "Separer le reflexe instantane (code + Jev 158 ms) du raisonnement conv
 - Resolveur phonetique 2,2 ms rattrape les homophones sans couter un tour LLM
 - Apprentissage vocabulaire verrouille sur preuve reelle (oui, epellation, commande)
 
-## 5. Unifier l'experience {blue}
+## 5. Unifier Voix, Appels et Web {blue}
 
 - Tableau de bord aide par l'IA et adapte a chacun des 5 profils
-- Cartes d'actions rotatives qui lancent directement Voix ou Assistant
-- Memoire SQLite unique : commencer a la voix, finir par ecrit sans rupture
+- Centrale WhatsApp VoIP WebRTC bicanale (/calls) et appairage QR (/settings)
+- Memoire SQLite unique : Voix, Appels et Assistant sans rupture
 
 ## Notes
 
-Pour rendre l'agent réellement proactif, nous avons separe le reflexe du raisonnement sur cinq couches. Avant le premier mot, la fiche client et ses habitudes saisonnieres sont prechargees. Des la fin de parole, le filler precoce et Jev System One partent en parallele. Cote serveur, le resolveur phonetique et les warnings backend verrouillent la justesse. Enfin, Dashboard, Voix et Assistant partagent la meme memoire SQLite.
+Pour rendre l'agent réellement proactif, nous avons separe le reflexe du raisonnement sur cinq couches. Avant le premier mot, la fiche client et ses habitudes saisonnieres sont prechargees. Des la fin de parole, le filler precoce et Jev System One partent en parallele. Cote serveur, le resolveur phonetique et les warnings backend verrouillent la justesse. Enfin, Dashboard, Voix, vrais appels WhatsApp et Assistant partagent la meme continuite.

@@ -1,24 +1,24 @@
 # Stockline × X-Forum — J.A.R.V.I.S (Alpes Restauration)
 
 > **J.A.R.V.I.S — *Juste un Agent Rapide pour la Voix et l'Inventaire Stockline***  
-> **La Proactivité comme Architecture** — Agent vocal temps réel, copilote ERP multi-rôles, décisions rapides TypeSafe Jev System One (`126–194 ms`), lexique phonétique auto-apprenant (`62/62`, `2,2 ms`) et garde-fous métier déterministes (`season_closed`, `unusual_quantity`).
+> **La Proactivité comme Architecture** — Agent vocal temps réel + **appels WhatsApp VoIP WebRTC bicanaux (`/calls`)**, copilote ERP multi-rôles, décisions rapides TypeSafe Jev System One (`126–194 ms`), lexique phonétique auto-apprenant (`62/62`, `2,2 ms`), repli multi-LLM agnostique (`opencode-go → nvidia → anthropic`) et garde-fous métier déterministes (`season_closed`, `unusual_quantity`).
 
 ## Livrables officiels du Hackathon (J.A.R.V.I.S)
 
 | Livrable | Emplacement dans le dépôt | Contenu & Chiffres clés |
 |---|---|---|
-| **1. `DECISIONS.md`** | **[`DECISIONS.md`](DECISIONS.md)** | Thèse (*La Proactivité comme Architecture*), cas d'usage (prise de commande matinale 5 h – 9 h), choix techniques, limites honnêtes et mesures (1er son **1,23 s**, STT cadencé **225 ms**, Jev **126–194 ms**, lexique **62/62** à 0 FP). |
+| **1. `DECISIONS.md`** | **[`DECISIONS.md`](DECISIONS.md)** | Thèse (*La Proactivité comme Architecture*), cas d'usage (prise de commande matinale 5 h – 9 h), choix techniques, appels WhatsApp VoIP réels + repli multi-LLM, limites honnêtes et mesures (1er son **1,23 s**, STT cadencé **225 ms**, Jev **126–194 ms**, lexique **62/62** à 0 FP). |
 | **2. Vidéo de démo (≤ 2 min)** | **[`demo/stockline-jarvis-demo.mp4`](demo/stockline-jarvis-demo.mp4)** | Parcours réel commenté de bout en bout (**1 min 33 s**, 1600×900, H.264/AAC) : connexion 1-clic → Dashboard Client IA → commande vocale piège (`season_closed` + puce `Jev 158 ms`) → continuité Assistant → vue Fournisseur → gouvernance Admin unique (`HTTP 409`). |
-| **3. Slides (≤ 5 min)** | **[`presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf)** · **[`.pptx`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pptx)** | **9 slides** (budget oral **4,5 min** à 140 mpm, code source reproductible dans [`presentation/`](presentation/) via `make -C presentation build`). |
-| **4. Code & Données (`./data/seed`)** | Racine du dépôt (`apps/`, `packages/`, `data/seed/`) | Graine complète d'**Alpes Restauration** (`data/seed/*.json` + `data/context/*.md`) incluse pour que **`make setup` fonctionne immédiatement après `git clone`**. |
+| **3. Slides (≤ 5 min)** | **[`presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf)** · **[`.pptx`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pptx)** | **9 slides** (budget oral **4,5 min** à 140 mpm, code source reproductible dans [`presentation/`](presentation/) via `make -C presentation build`), intégrant la centrale d'appels WhatsApp VoIP réelle et le repli multi-LLM. |
+| **4. Code & Données (`./data/seed`)** | Racine du dépôt (`apps/`, `packages/`, `data/seed/`) | Graine complète d'**Alpes Restauration** (`data/seed/*.json` + `data/context/*.md`) incluse pour que **`make setup` fonctionne immédiatement après `git clone`** (`backend:4000`, `ai:4100`, `web:5173`, `wa:3001`). |
 
 ### Démarrage rapide Jury (1 commande)
 
 ```bash
-# 1. Cloner et lancer (Docker recommandé : crée .env depuis .env.example si absent, construit et démarre backend:4000, ai:4100, web:5173)
+# 1. Cloner et lancer (Docker recommandé : crée .env depuis .env.example si absent, construit et démarre backend:4000, ai:4100, web:5173, wa:3001)
 make setup
 
-# (Optionnel) Placer vos clés API réelles (Anthropic / NVIDIA / Soniox / ElevenLabs / Jev) dans .env puis :
+# (Optionnel) Placer vos clés API réelles (OpenCode Go / NVIDIA / Anthropic / Soniox / ElevenLabs / Jev) dans .env puis :
 make restart
 
 # (Alternative sans Docker : Python 3.12 via uv + Node 22 / pnpm)
@@ -36,8 +36,8 @@ Une fois démarré, ouvrez **http://localhost:5173** (la page `/login` propose *
 
 Commandes de vérification et de remise à zéro :
 - `make check` : vérification TypeScript (`tsc --noEmit`) + contrôle design-system.
-- `make test` : **384 tests** unitaires et d'intégration du service IA (`apps/ai`), plus **59 tests** backend (`cd apps/backend && uv run pytest -q`).
-- `make reset` : réinitialise la base ERP SQLite à partir de `data/seed/`.
+- `make test` : **391 tests** unitaires et d'intégration du service IA (`apps/ai`), plus **59 tests** backend (`docker compose exec -T backend pytest -q` ou `cd apps/backend && uv run pytest -q`).
+- `make reset` : réinitialise la base ERP SQLite à partir de `data/seed/` (et bouton **`Réinit tests (ERP + Appels)`** sur `/calls` pour remettre à zéro ERP + appels tout en conservant le QR WhatsApp et les numéros associés).
 - `curl -s http://localhost:4100/jev/stats` : télémétrie temps réel de TypeSafe Jev System One (`p50_ms`, `p90_ms`, nombre d'appels).
 
 ---
@@ -74,17 +74,20 @@ deterministic fakes that still call the real ERP. Add your keys when you are rea
 
 > **J.A.R.V.I.S (Juste un Agent Rapide pour la Voix et l'Inventaire Stockline — Alpes Restauration) :** `data/seed` is bundled so `make setup` runs cleanly from a fresh clone.
 > Key additions on `stockline-jarvis`:
+> - **WhatsApp VoIP WebRTC Call Desk (`/calls` & `/settings`, `apps/wa`)**: real WhatsApp calls via Baileys VoIP + pure-TS `werift` Opus 48 kHz ↔ 16 kHz VAD bridge, live QR pairing, phone-to-ERP client binding (`calls.db`), bicanal live transcription, Jev turn chips, abstention-guarded J.A.R.V.I.S ERP copilot (`POST /ai/calls/{id}/orders/{ord}/confirm`), 1-click call simulator, and 1-click test reset (`POST /ai/calls/reset`).
+> - **Agnostic OpenAI-compatible + ordered LLM fallback (`apps/ai/app/clients/fallback.py`)**: supports `opencode-go` (`https://opencode.ai/inference/go/openai/v1` with `x-opencode-session`), `nvidia` Nemotron, `anthropic` Claude, or comma-separated failover chains (`LLM_PROVIDER=opencode-go,nvidia,anthropic`).
 > - **5-role authentication & strict single-admin** (`/login` with 1-click demo profiles: `admin`, `thibault`, `emilie`, `payet`, `leila`, `igloo`, `chambaran`, `perrier`; `/accounts` CRUD with `HTTP 409` on a 2nd admin).
-> - **AI-helped personalised Dashboard** (`GET /ai/suggestions`): live briefing + rotating clickable action cards routing directly to **Voix** or **Assistant**.
+> - **AI-helped personalised Dashboard** (`GET /ai/suggestions` + `WhatsAppCallsWidget`): live briefing + rotating clickable action cards routing directly to **Voix**, **Appels WhatsApp**, or **Assistant**.
 > - **Unified Assistant ↔ Voix sessions** (`apps/ai/app/services/sessions.py` + `sessions.db`): list, search, rename, delete, resume, and continue a voice turn inside text Assistant (and vice-versa).
-> - **Proactive intelligence & safety**: early filler at final transcript + tool start (`total` 1.23 s median audio / 21–39 ms post-transcript), phonetic lexicon resolver (`62/62`, 2.2 ms, confirmed-only learning), TypeSafe Jev micro-decisions (`126–194 ms`), and deterministic backend plausibility warnings (`season_closed`, `unusual_quantity`).
-> - **Deliverables**: [`DECISIONS.md`](DECISIONS.md) (thesis & measured tables), [`presentation/`](presentation/) (5-min deck-as-code), [`demo/`](demo/) (<= 2-min demo video).
+> - **Proactive intelligence & safety**: early filler at final transcript + tool start (`total` 1.23 s median audio / 21–39 ms post-transcript), phonetic lexicon resolver (`62/62`, 2.2 ms, confirmed-only learning, Soniox `MAX_TERMS_CHARS=10000`), TypeSafe Jev micro-decisions (`126–194 ms`), and deterministic backend plausibility warnings (`season_closed`, `unusual_quantity`).
+> - **Deliverables**: [`DECISIONS.md`](DECISIONS.md) (thesis & measured tables), [`presentation/`](presentation/) (5-min deck-as-code), [`demo/`](demo/) (<= 2-min demo video), [`TEST_WHATSAPP_CALL.md`](TEST_WHATSAPP_CALL.md) (2-person real call script).
 
 | Part | Path | Stack | Port |
 |---|---|---|---|
 | ERP backend | `apps/backend` | Python 3.12 · FastAPI · SQLite | 4000 |
-| AI service (LLM / STT / TTS, agent, chat, voice) | `apps/ai` | Python 3.12 · FastAPI · httpx | 4100 |
+| AI service (LLM / STT / TTS, agent, chat, voice, calls) | `apps/ai` | Python 3.12 · FastAPI · httpx | 4100 |
 | Web app | `apps/web` | React · Vite · Tailwind (TypeScript) | 5173 |
+| WhatsApp VoIP WebRTC bridge | `apps/wa` | Node 22 · TypeScript · Baileys VoIP + `werift` | 3001 (+ 40000-40020/udp) |
 | Your company's data (seed, context docs) | `./data` (from your team zip, `DATA_DIR`) | JSON + Markdown | — |
 
 In short: `make setup` the first time (Docker), `make up` / `make down` afterwards, `make local` / `make dev` without
@@ -104,8 +107,10 @@ All three services read the single `.env` at the repo root (your team zip ships 
 | `DATA_DIR` | your company's data, relative to the repo root (`./data` in your team zip) |
 | `WEB_PORT`, `API_PORT`, `AI_PORT` | ports on your machine (5173 / 4000 / 4100) |
 | `ERP_API_URL` | where the AI service reaches the ERP in local mode (`http://localhost:4000`; Docker sets it itself) |
-| `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | `anthropic` · `nvidia` (preset `nemotron-3-ultra-550b-a55b`, `LLM_API_KEY` or `NVIDIA_API_KEY`) · `deepseek` · `openai` · `gemini` · `openai-compatible` · `mock`. **Clear `LLM_MODEL=`** when switching providers so an old model name is not sent to the new provider. |
+| `LLM_PROVIDER`, `LLM_FALLBACKS`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | `opencode-go` (`https://opencode.ai/inference/go/openai/v1`, key `OPENCODE_API_KEY`) · `nvidia` (`nemotron-3-ultra-550b-a55b`, key `NVIDIA_API_KEY`) · `anthropic` (`ANTHROPIC_API_KEY` or `LLM_API_KEY`) · `deepseek` · `openai` · `gemini` · `openai-compatible` · `mock`. Supports comma-separated fallback chains (e.g. `LLM_PROVIDER=opencode-go,nvidia,anthropic`). **Clear `LLM_MODEL=`** when switching providers. |
+| `OPENCODE_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_INCLUDE_USAGE` | dedicated per-provider keys for fallback chains + optional `1`/`0` override for `stream_options.include_usage` on custom OpenAI-compatible servers |
 | `LLM_EFFORT` | Anthropic: `low` (default) · `medium` · `high` · NVIDIA Nemotron: `none`/`low` (thinking off) · `medium`/`high` (thinking on) |
+| `WA_PORT`, `WA_URL`, `WHATS_PROXY_STATE_DIR`, `ICE_SERVERS` | WhatsApp VoIP WebRTC bridge (`3001`, Docker `http://wa:3001`, persistent volume `wa-state:/wa-state`, STUN `stun:stun.l.google.com:19302`) |
 | `STT_PROVIDER`, `STT_API_KEY`, `STT_MODEL`, `STT_LANGUAGE` | `soniox` · `deepgram` · `gradium` · `openai` · `nvidia` (optional, see below) · `mock` |
 | `NVIDIA_API_KEY`, `NVIDIA_STT_FUNCTION_ID`, `NVIDIA_STT_URI`, `NVIDIA_STT_BOOST`, `NVIDIA_STT_STREAMING` | only for `STT_PROVIDER=nvidia`, all optional but the key |
 | `AI_UV_SYNC_ARGS`, `AI_APT_PACKAGES` | Docker build only: extras for the `ai` image (`--extra nvidia`, `ffmpeg`); empty = stock image |
@@ -184,11 +189,11 @@ same code path: an adapter only implements `STTClient` (`clients/base.py`).
 
 | Folder | Role |
 |---|---|
-| `clients/` | abstract `LLMClient`, `STTClient`, `TTSClient` + one file per provider + `factory.py` (from `.env`) |
+| `clients/` | abstract `LLMClient`, `STTClient`, `TTSClient` + one file per provider + `presets.py` + `fallback.py` + `factory.py` (from `.env`) |
 | `agent/` | `loop.py` (the agent loop) and `prompts.py` (rules per mode + company context + business date) |
 | `tools/` | the functions the model can call, declared with `@tool` |
-| `routers/` | `/chat`, `/command`, `/voice` (WebSocket), `/stt`, `/tts`, `/health`, `/tools` |
-| `services/` | `voice_session.py` (push-to-talk, barge-in, sentence-by-sentence TTS, timings), `command.py` |
+| `routers/` | `/chat`, `/command`, `/voice` (WebSocket), `/calls/*` + `/wa/*` (WhatsApp VoIP + QR), `/sessions/*`, `/suggestions`, `/vocab`, `/stt`, `/tts`, `/health`, `/tools` |
+| `services/` | `voice_session.py` (push-to-talk, barge-in, sentence-by-sentence TTS, timings), `calls.py` (WhatsApp VoIP + async STT/Jev + coalesced copilot), `sessions.py`, `command.py` |
 | `schemas/` | the wire contract (chat events, voice messages) |
 
 Details, protocols and the agent loop: [`apps/ai/README.md`](apps/ai/README.md).

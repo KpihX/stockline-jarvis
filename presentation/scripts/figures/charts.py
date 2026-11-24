@@ -62,11 +62,11 @@ def fig_architecture() -> None:
     ax.text(0.10, 2.52, "DECISION, SECURITE ET METIER (COTE SERVEUR)", fontsize=10, fontweight="bold", color=theme.PALETTE["emerald"])
 
     top_boxes = [
-        (0.15, 2.05, "Micro 100 ms", "MediaRecorder opus\npre-chauffe, anti-clip", "surface", "border"),
-        (2.55, 2.25, "Soniox STT flux", "225 ms finalisation\nlexique client en tete", "violet_soft", "violet"),
-        (5.15, 2.30, "LLM + Cache 27k", "Claude / Nemotron\nfiller au transcript final", "violet_soft", "violet"),
-        (7.80, 2.10, "ElevenLabs TTS", "136 ms 1er octet\ncoupe virgule + phrase", "surface", "border"),
-        (10.20, 1.65, "Haut-parleur", "MediaSource\nbarge-in < 100 ms", "emerald_soft", "emerald"),
+        (0.15, 2.05, "Micro / VoIP WA", "WS /voice ou Baileys\nOpus 48 kHz -> VAD 16 kHz", "surface", "border"),
+        (2.55, 2.25, "Soniox STT flux", "225 ms finalisation\n478 termes + jargon (10k)", "violet_soft", "violet"),
+        (5.15, 2.30, "Repli multi-LLM", "OpenCode Go -> Nemotron\n-> Claude + filler precoce", "violet_soft", "violet"),
+        (7.80, 2.10, "TTS / Retour audio", "ElevenLabs 136 ms\nMediaSource + WebRTC WA", "surface", "border"),
+        (10.20, 1.65, "Ecoute & Appel", "Barge-in < 100 ms\nbicanal client/manager", "emerald_soft", "emerald"),
     ]
     for x, w, title, sub, fill, edge in top_boxes:
         lines = [title, *sub.split("\n")]
@@ -91,7 +91,7 @@ def fig_architecture() -> None:
     for bx, bw, tx in [(1.52, 0, 3.65), (4.57, 0, 3.85), (7.57, 0, 6.20), (10.52, 0, 6.55)]:
         figkit.arrow(ax, (bx, y_bot + h + 0.04), (tx, y_top - 0.04), colour=theme.PALETTE["emerald"], lw=1.3)
 
-    ax.text(6.0, 0.35, "Cascade chevauchee : chaque brique est interchangeable via .env (Soniox/NVIDIA, Anthropic/OpenAI-compatible).",
+    ax.text(6.0, 0.35, "Cascade chevauchee + vrais appels WhatsApp VoIP (/calls) : chaque brique est interchangeable via .env.",
             ha="center", va="center", fontsize=10.5, color=theme.PALETTE["muted"], style="italic")
     _finish(ax, fig, key)
 
@@ -234,13 +234,14 @@ def fig_security_rules() -> None:
 
 def fig_ui_proof() -> None:
     key = "ui_proof"
-    from PIL import Image, ImageOps
+    from PIL import Image
 
     assets = SCRIPTS.parent / "assets"
     specs = [
-        ("ui_client_dash.png", 0.05, 0.55, 3.85, "1. Dashboard Client IA (Payet)", "Briefing LLM live + 4 cartes rotatives -> Voix / Chat"),
-        ("ui_voice_chat.png", 4.08, 0.55, 3.85, "2. Voix + Puce Jev 158 ms + Warning", "Alerte season_closed + suite live dans l'Assistant"),
-        ("ui_admin_accounts.png", 8.11, 0.55, 3.85, "3. Auth 5 roles & Admin unique", "Invariant HTTP 409 + attribution verifiee"),
+        ("ui_client_dash.png", 1.00, 2.28, 4.60, "1. Dashboard IA par profil (Payet)", "Briefing live + 4 cartes rotatives -> Voix / Chat"),
+        ("ui_voice_chat.png", 6.40, 2.28, 4.60, "2. Voix + Puce Jev 158 ms + Assistant", "season_closed + memoire SQLite unifiee"),
+        ("ui_calls_voip.png", 1.00, 0.04, 4.60, "3. Appel WhatsApp VoIP reel (/calls)", "337 -> CMD-2026-007299 Confirmee (289,25 EUR)"),
+        ("ui_admin_accounts.png", 6.40, 0.04, 4.60, "4. Auth 5 roles & Admin unique (409)", "Scrypt + HMAC-SHA256 + attribution verifiee"),
     ]
     fig, ax = figkit.canvas(W_FULL, H_FULL)
     ax.axis("off")
@@ -251,17 +252,19 @@ def fig_ui_proof() -> None:
         p = assets / fname
         im = Image.open(p).convert("RGB")
         aspect = im.height / im.width
-        img_h = w * aspect
-        # Frame card
-        card_h = img_h + 0.85
+        max_img_h = 1.72
+        img_w = min(w - 0.12, max_img_h / aspect)
+        img_h = img_w * aspect
+        x_img = x + (w - img_w) / 2
+        card_h = 2.15
         ax.add_patch(plt.Rectangle((x, y), w, card_h, facecolor=theme.PALETTE["surface"],
                                    edgecolor=theme.PALETTE["border"], linewidth=1.1))
-        ax.imshow(im, extent=(x + 0.06, x + w - 0.06, y + 0.72, y + 0.72 + (w - 0.12) * aspect), aspect="auto", zorder=3)
-        ax.text(x + w / 2, y + 0.44, title, ha="center", va="center", fontsize=10.5, fontweight="bold", color=theme.PALETTE["ink"])
-        ax.text(x + w / 2, y + 0.19, cap, ha="center", va="center", fontsize=8.8, color=theme.PALETTE["muted"])
+        ax.imshow(im, extent=(x_img, x_img + img_w, y + 0.39, y + 0.39 + img_h), aspect="auto", zorder=3)
+        ax.text(x + w / 2, y + 0.25, title, ha="center", va="center", fontsize=9.6, fontweight="bold", color=theme.PALETTE["ink"])
+        ax.text(x + w / 2, y + 0.09, cap, ha="center", va="center", fontsize=8.1, color=theme.PALETTE["muted"])
 
-    ax.text(W_FULL / 2, 4.45, "Captures reelles de l'application (http://localhost:5173) sous Chrome / browser-proxy",
-            ha="center", va="center", fontsize=11, fontweight="bold", color=theme.PALETTE["emerald_dark"])
+    ax.text(W_FULL / 2, 4.63, "Captures reelles (http://localhost:5173) : Dashboard, Voix, Appel WhatsApp 337 en direct et Comptes",
+            ha="center", va="center", fontsize=10.8, fontweight="bold", color=theme.PALETTE["emerald_dark"])
     _finish(ax, fig, key)
 
 
