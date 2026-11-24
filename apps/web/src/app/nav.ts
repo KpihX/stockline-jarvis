@@ -1,7 +1,7 @@
 /** Navigation model: filtered by authenticated role (`client`, `supplier`, `manager`, `admin`). */
 import {
   Activity, AudioLines, BadgeEuro, BookOpen, Boxes, Building2, FileText, History, Home,
-  Package, Scale, ShieldCheck, ShoppingCart, Sparkles, Tags, Truck, Users, Wallet, Warehouse,
+  Package, PhoneIncoming, QrCode, Scale, ShieldCheck, ShoppingCart, Sparkles, Tags, Truck, Users, Wallet, Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import type { AuthRole } from "@kit/shared";
@@ -49,6 +49,7 @@ export const NAV: NavGroup[] = [
     items: [
       { to: "#assistant", label: "Assistant", icon: Sparkles, keywords: "chat ia", roles: ["client", "supplier", "manager", "admin"] },
       { to: "/voice", label: "Voix", icon: AudioLines, keywords: "agent vocal appel", roles: ["client", "supplier", "manager", "admin"] },
+      { to: "/calls", label: "Appels WhatsApp", icon: PhoneIncoming, keywords: "whatsapp voip webrtc appel telephone client", roles: ["manager", "admin"] },
       { to: "/context", label: "Contexte", icon: BookOpen, keywords: "contexte ia fiches connaissances", roles: ["manager", "admin"] },
     ],
   },
@@ -57,6 +58,7 @@ export const NAV: NavGroup[] = [
     items: [
       { to: "/activity", label: "Activité", icon: Activity, keywords: "journal événements", roles: ["manager", "admin"] },
       { to: "/groups", label: "Groupes", icon: Tags, keywords: "groupes tags étiquettes", roles: ["manager", "admin"] },
+      { to: "/settings", label: "Paramètres WA", icon: QrCode, keywords: "whatsapp qr code reglages parametres pairing", roles: ["manager", "admin"] },
       { to: "/accounts", label: "Comptes", icon: ShieldCheck, keywords: "comptes profils utilisateurs admin", roles: ["admin"] },
     ],
   },

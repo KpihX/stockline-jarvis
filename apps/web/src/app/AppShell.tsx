@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { ShieldAlert } from "lucide-react";
+import { PhoneCall, PhoneOff, ShieldAlert } from "lucide-react";
 import { useActivityStream } from "@/lib/queries";
 import { cn } from "@/lib/cn";
-import { Button, CommandK, EmptyState, Page, PageBody, PageHeader, PageHeaderSlot, ResizeHandle, Toaster, useResizableWidth } from "@/ui";
+import { Button, CommandK, Dot, EmptyState, Page, PageBody, PageHeader, PageHeaderSlot, ResizeHandle, Toaster, useResizableWidth } from "@/ui";
 import { AssistantPanel } from "@/features/assistant/AssistantPanel";
 import { UserMenu } from "@/features/auth/UserMenu";
 import { canVisitRoute, useAuth } from "@/features/auth/auth-store";
+import { callsStore, useCalls } from "@/features/calls/calls-store";
 import { VoiceCommandButton, VoiceCommandProvider } from "@/features/voice-command";
 import { AssistantButton } from "./AssistantButton";
 import { Sidebar } from "./Sidebar";
@@ -46,7 +47,16 @@ function ForbiddenView({ role }: { role: string }) {
 export function AppShell() {
   const { account } = useAuth();
   const loc = useLocation();
+  const navigate = useNavigate();
+  const cs = useCalls();
   useActivityStream();
+  useEffect(() => {
+    if (account && (account.role === "manager" || account.role === "admin")) {
+      callsStore.connectStream();
+    } else {
+      callsStore.disconnectStream();
+    }
+  }, [account?.id, account?.role]);
   const { assistantOpen } = useShell();
   const assistant = useResizableWidth("assistant", 400, 320, 720);
   // Keep the panel mounted while it animates closed (unmounting resets chat focus/scroll, chat state lives in its store).
@@ -92,18 +102,60 @@ export function AppShell() {
   }
   const allowed = canVisitRoute(account.role, loc.pathname, account.entityId);
 
+  const isStaff = account.role === "manager" || account.role === "admin";
+  const showCallBar = isStaff && cs.activeCall && (cs.activeCall.status === "ringing" || cs.activeCall.status === "active");
+
   return (
     <div className="flex h-full min-w-[1024px] overflow-hidden bg-background">
+      <audio ref={(el) => callsStore.bindAudioElement(el)} autoPlay playsInline className="hidden" />
       <Sidebar />
-      <main className="relative min-w-0 flex-1 overflow-hidden">
-        <PageHeaderSlot trailing={<ShellHeaderTools />} register={registerHeader}>
-          {allowed ? <Outlet /> : <ForbiddenView role={account.role} />}
-        </PageHeaderSlot>
-        {headers === 0 ? (
-          <div className="absolute right-5 top-0 z-30 flex h-12 items-center">
-            <ShellHeaderTools />
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {showCallBar && cs.activeCall ? (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-primary/40 bg-primary/[.08] px-5 py-2 text-[12.5px]">
+            <div className="flex items-center gap-2.5">
+              <Dot tone={cs.activeCall.status === "active" ? "success" : "warning"} pulse />
+              <span className="font-semibold text-foreground">
+                {cs.activeCall.status === "ringing" ? "Appel WhatsApp entrant :" : "Appel WhatsApp actif :"}
+              </span>
+              <span className="font-medium text-primary">{cs.activeCall.clientName || cs.activeCall.phoneNumber}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">{cs.activeCall.phoneNumber}</span>
+              {cs.activeCall.linkedCommands?.length ? (
+                <span className="rounded-[3px] border border-primary/30 bg-card px-1.5 py-0.5 font-mono text-[11px] text-primary">
+                  {cs.activeCall.linkedCommands[0].number}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {cs.activeCall.status === "ringing" ? (
+                <>
+                  <Button size="sm" variant="primary" icon={PhoneCall} loading={cs.busy} onClick={() => { void callsStore.answerCall(cs.activeCall!.callId); navigate("/calls"); }}>
+                    Décrocher
+                  </Button>
+                  <Button size="sm" variant="danger" icon={PhoneOff} onClick={() => void callsStore.rejectCall(cs.activeCall!.callId)}>
+                    Refuser
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="danger" icon={PhoneOff} onClick={() => void callsStore.hangupCall(cs.activeCall!.callId)}>
+                  Raccrocher
+                </Button>
+              )}
+              <Button size="sm" variant="default" onClick={() => navigate("/calls")}>
+                Ouvrir Appels
+              </Button>
+            </div>
           </div>
         ) : null}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <PageHeaderSlot trailing={<ShellHeaderTools />} register={registerHeader}>
+            {allowed ? <Outlet /> : <ForbiddenView role={account.role} />}
+          </PageHeaderSlot>
+          {headers === 0 ? (
+            <div className="absolute right-5 top-0 z-30 flex h-12 items-center">
+              <ShellHeaderTools />
+            </div>
+          ) : null}
+        </div>
       </main>
       {assistantMounted ? (
         <div

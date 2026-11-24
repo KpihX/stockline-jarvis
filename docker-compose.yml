@@ -39,6 +39,7 @@ services:
       AI_PORT: "4100"
       DATA_DIR: /data
       ERP_API_URL: http://backend:4000
+      WA_URL: http://wa:3001
       AI_STATE_DIR: /state  # the AI service's own durable state (session memory); survives restart/recreate
     volumes:
       - ./apps/ai/app:/app/apps/ai/app
@@ -73,6 +74,29 @@ services:
       backend: { condition: service_healthy }
       ai: { condition: service_started }
 
+  wa:
+    <<: *common
+    build: { context: ., dockerfile: docker/wa.Dockerfile }
+    image: voice-erp-kit/wa:dev
+    environment:
+      WA_PORT: "3001"
+      AI_URL: http://ai:4100
+      WHATS_PROXY_STATE_DIR: /wa-state
+    volumes:
+      - wa-state:/wa-state
+    ports:
+      - "${WA_PORT:-3001}:3001"
+      - "40000-40020:40000-40020/udp"
+    depends_on:
+      ai: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
 volumes:
   erp-db:
   ai-state:
+  wa-state:

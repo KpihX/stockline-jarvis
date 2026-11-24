@@ -425,15 +425,4 @@ async def build_suggestions(caller: Caller, *, seed: int = 0, use_llm: bool = Tr
         "seed": seed,
     }
     _cache[cache_key] = (time.monotonic(), result)
-    # Proactively warm the next refresh seed in the background so clicking "Nouvelles suggestions" is instant
-    next_key = (caller.role, caller.client_id, caller.supplier_id, caller.actor_name, (seed + 1) % 8)
-    if use_llm and next_key not in _cache:
-        asyncio.create_task(_warm_next(caller, seed + 1))
     return result
-
-
-async def _warm_next(caller: Caller, next_seed: int) -> None:
-    try:
-        await build_suggestions(caller, seed=next_seed, use_llm=True)
-    except Exception:
-        pass

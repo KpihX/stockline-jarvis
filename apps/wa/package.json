@@ -1,0 +1,25 @@
+{
+  "name": "stockline-jarvis-wa",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/patch-baileys-voip.mjs",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@hapi/boom": "^9.1.4",
+    "@innovatorssoft/baileys": "^7.4.11",
+    "opusscript": "^0.1.1",
+    "qrcode": "^1.5.4",
+    "tsx": "^4.20.6",
+    "werift": "^0.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.9.0"
+  }
+}

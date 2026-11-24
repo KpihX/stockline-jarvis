@@ -208,3 +208,70 @@ export interface DashboardSuggestionsPayload {
   suggestions: DashboardSuggestion[];
   seed: number;
 }
+
+// ── WhatsApp VoIP Call Desk & Pairing ──
+
+export interface WaStatusPayload {
+  status: "disconnected" | "connecting" | "qr_pending" | "connected" | "unavailable";
+  phone: string;
+  qrReady: boolean;
+}
+
+export interface CallTranscriptEntry {
+  id: string;
+  seq: number;
+  speaker: "client" | "manager";
+  text: string;
+  durationMs: number;
+  ts: string;
+  jevMs?: number;
+  jevRoute?: string;
+}
+
+export interface CallLinkedCommand {
+  id: string;
+  number: string;
+  status: string;
+  deliveryDate?: string;
+  totalHt?: number;
+  lineCount?: number;
+}
+
+export interface CallWarning {
+  code: string;
+  message: string;
+}
+
+export interface CallSession {
+  callId: string;
+  phoneNumber: string;
+  clientId: string;
+  clientName: string;
+  knownClient: boolean;
+  status: "ringing" | "active" | "ended" | "rejected";
+  mode: string;
+  startedAt: string;
+  endedAt?: string | null;
+  reason?: string | null;
+  muted: boolean;
+  committed: boolean;
+  transcripts: CallTranscriptEntry[];
+  linkedCommands: CallLinkedCommand[];
+  warnings: CallWarning[];
+  copilotNote: string;
+  stats?: Record<string, unknown>;
+}
+
+export interface PhoneBinding {
+  phoneDigits: string;
+  clientId: string;
+  clientName: string;
+}
+
+export interface CallConfigPayload {
+  provider: string;
+  sampleRate: number;
+  webrtcRate: number;
+  iceServers: RTCIceServer[];
+  bindings: PhoneBinding[];
+}

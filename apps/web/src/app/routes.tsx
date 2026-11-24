@@ -27,6 +27,8 @@ import GroupsPage from "@/pages/groups";
 import ContextPage from "@/pages/context";
 import LoginPage from "@/pages/login";
 import AccountsPage from "@/pages/accounts";
+import CallsPage from "@/pages/calls";
+import SettingsPage from "@/pages/settings";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -36,6 +38,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "accounts", element: <AccountsPage /> },
+      { path: "calls", element: <CallsPage /> },
+      { path: "settings", element: <SettingsPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailPage /> },
       { path: "clients", element: <ClientsPage /> },

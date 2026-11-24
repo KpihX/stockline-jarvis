@@ -39,3 +39,4 @@ docker-compose.override.yml
 
 # the AI service's own durable state when run without Docker (session memory, AI_STATE_DIR; Docker uses the ai-state volume)
 .state/
+.wa-state/

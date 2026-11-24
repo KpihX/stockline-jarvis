@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity, AlertTriangle, ArrowUpRight, AudioLines, Building2, CalendarClock, ClipboardList, Euro,
-  MessageSquare, Package, PackageX, Plus, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, TrendingUp, Truck, Users,
+  MessageSquare, Package, PackageX, PhoneIncoming, Plus, QrCode, RefreshCw, ShieldCheck, ShoppingCart, Sparkles, TrendingUp, Truck, Users,
 } from "lucide-react";
 import type { ActivityEvent, Dashboard, DashboardSuggestion, DashboardSuggestionsPayload } from "@kit/shared";
 import { cn } from "@/lib/cn";
@@ -23,6 +23,7 @@ import { fetchAiSuggestions } from "@/features/assistant/ai-client";
 import { chat } from "@/features/assistant/chat-store";
 import { sessionsStore } from "@/features/assistant/sessions-store";
 import { useAuth } from "@/features/auth/auth-store";
+import { useCalls } from "@/features/calls/calls-store";
 import { RevenueChart } from "./revenue-chart";
 
 function nextRefreshSeed(): number {
@@ -447,6 +448,7 @@ function InternalDashboard({
         }
         actions={
           <div className="flex items-center gap-2">
+            <Button variant="default" icon={PhoneIncoming} onClick={() => navigate("/calls")}>Appels WhatsApp</Button>
             {role === "admin" ? (
               <Button variant="default" icon={ShieldCheck} onClick={() => navigate("/accounts")}>Comptes (Admin)</Button>
             ) : null}
@@ -474,6 +476,7 @@ function InternalDashboard({
                   <LowStock d={d} />
                   <Expiring d={d} />
                 </div>
+                <WhatsAppCallsWidget />
               </div>
               <LiveActivity />
             </div>
@@ -481,6 +484,60 @@ function InternalDashboard({
         )}
       </PageBody>
     </Page>
+  );
+}
+
+function WhatsAppCallsWidget() {
+  const cs = useCalls();
+  const navigate = useNavigate();
+  const waConnected = cs.wa.status === "connected";
+  return (
+    <Section
+      title="Appels WhatsApp VoIP & Commandes extraites"
+      actions={
+        <div className="flex items-center gap-3 text-[12px]">
+          <Link to="/settings" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+            <QrCode size={12} /> {waConnected ? `WA connecté (${cs.wa.phone.split(":")[0]})` : "Scanner QR WhatsApp"}
+          </Link>
+          <Link to="/calls" className="text-primary hover:underline">Ouvrir la centrale →</Link>
+        </div>
+      }
+    >
+      {cs.recentCalls.length === 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-[6px] border border-border bg-card px-4 py-3 text-[12.5px] text-muted-foreground">
+          <span>Aucun appel WhatsApp reçu pour le moment. Les appels entrants et leurs commandes extraites apparaissent ici en direct.</span>
+          <Button size="sm" variant="default" icon={PhoneIncoming} onClick={() => navigate("/calls")}>
+            Tester un appel
+          </Button>
+        </div>
+      ) : (
+        <ListFrame>
+          {cs.recentCalls.slice(0, 5).map((c) => (
+            <li key={c.callId}>
+              <Link to="/calls" className={ROW_LINK}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <Dot tone={c.status === "active" ? "success" : c.status === "ringing" ? "warning" : "muted"} pulse={c.status === "ringing" || c.status === "active"} />
+                  <span className="truncate font-medium text-foreground">{c.clientName || c.phoneNumber}</span>
+                  <span className="truncate text-[12px] text-muted-foreground">{c.copilotNote || c.transcripts?.[0]?.text || "Appel"}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  {c.linkedCommands?.map((cmd) => (
+                    <span key={cmd.id} className="rounded-[3px] border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
+                      {cmd.number}
+                    </span>
+                  ))}
+                  {c.warnings?.length ? (
+                    <span className="rounded-[3px] border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-mono text-[10.5px] text-warning">
+                      ⚠ {c.warnings[0].code}
+                    </span>
+                  ) : null}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ListFrame>
+      )}
+    </Section>
   );
 }
 
