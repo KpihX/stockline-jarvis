@@ -11,6 +11,7 @@ setup: ## first run: checks, builds, starts everything in Docker (see SETUP.md)
 	@COMPANY=$(COMPANY) ./scripts/setup.sh
 
 up: ## start backend + ai + web in Docker (http://localhost:5173)
+	@test -f .env || cp .env.example .env
 	$(COMPOSE) up -d --build
 	@echo "→ http://localhost:$(WEB_PORT)   (logs: make logs)"
 
@@ -18,6 +19,7 @@ down: ## stop the containers (data is kept)
 	$(COMPOSE) down
 
 restart: ## restart after editing .env
+	@test -f .env || cp .env.example .env
 	$(COMPOSE) up -d --force-recreate
 
 logs: ## follow the logs of all services

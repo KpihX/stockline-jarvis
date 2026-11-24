@@ -1,4 +1,47 @@
-# Voice ERP kit
+# Stockline × X-Forum — Team 01 (Alpes Restauration)
+
+> **La Proactivité comme Architecture** — Agent vocal temps réel, copilote ERP multi-rôles, décisions rapides TypeSafe Jev System One (`126–194 ms`), lexique phonétique auto-apprenant (`62/62`, `2,2 ms`) et garde-fous métier déterministes (`season_closed`, `unusual_quantity`).
+
+## Livrables officiels du Hackathon (Team 01)
+
+| Livrable | Emplacement dans le dépôt | Contenu & Chiffres clés |
+|---|---|---|
+| **1. `DECISIONS.md`** | **[`DECISIONS.md`](DECISIONS.md)** | Thèse (*La Proactivité comme Architecture*), cas d'usage (prise de commande matinale 5 h – 9 h), choix techniques, limites honnêtes et mesures (1er son **1,23 s**, STT cadencé **225 ms**, Jev **126–194 ms**, lexique **62/62** à 0 FP). |
+| **2. Vidéo de démo (≤ 2 min)** | **[`demo/stockline-team01-demo.mp4`](demo/stockline-team01-demo.mp4)** | Parcours réel commenté de bout en bout (**1 min 33 s**, 1600×900, H.264/AAC) : connexion 1-clic → Dashboard Client IA → commande vocale piège (`season_closed` + puce `Jev 158 ms`) → continuité Assistant → vue Fournisseur → gouvernance Admin unique (`HTTP 409`). |
+| **3. Slides (≤ 5 min)** | **[`presentation/build/Stockline-Team01-Alpes-Restauration.pdf`](presentation/build/Stockline-Team01-Alpes-Restauration.pdf)** · **[`.pptx`](presentation/build/Stockline-Team01-Alpes-Restauration.pptx)** | **9 slides** (budget oral **4,5 min** à 140 mpm, code source reproductible dans [`presentation/`](presentation/) via `make -C presentation build`). |
+| **4. Code & Données (`./data/seed`)** | Racine du dépôt (`apps/`, `packages/`, `data/seed/`) | Graine complète d'**Alpes Restauration** (`data/seed/*.json` + `data/context/*.md`) incluse pour que **`make setup` fonctionne immédiatement après `git clone`**. |
+
+### Démarrage rapide Jury (1 commande)
+
+```bash
+# 1. Cloner et lancer (Docker recommandé : crée .env depuis .env.example si absent, construit et démarre backend:4000, ai:4100, web:5173)
+make setup
+
+# (Optionnel) Placer vos clés API réelles (Anthropic / NVIDIA / Soniox / ElevenLabs / Jev) dans .env puis :
+make restart
+
+# (Alternative sans Docker : Python 3.12 via uv + Node 22 / pnpm)
+make local
+```
+
+Une fois démarré, ouvrez **http://localhost:5173** (la page `/login` propose **8 comptes de démo en connexion 1-clic**) :
+
+| Profil | Identifiant (1-clic sur `/login`) | Mot de passe | Périmètre vérifié côté serveur |
+|---|---|---|---|
+| **Admin unique** | `@admin` (*Direction Alpes*) | `demo-admin` | Accès complet ERP + `/accounts` (invariant strict : 1 seul admin, `HTTP 409` sinon) |
+| **Commercial** | `@thibault` (*Thibault Gros*) · `@emilie` (*Émilie Brun*) | `demo-thibault` · `demo-emilie` | Tout le métier ERP (commandes, clients, stocks, achats, tournées), sans `/accounts` |
+| **Client CHR** | `@payet` (*Le Refuge Payet*) · `@leila` · `@igloo` | `demo-payet` · `demo-leila` · `demo-igloo` | Dashboard Client IA, ses commandes, ses habitudes, ses tarifs et factures uniquement |
+| **Fournisseur** | `@chambaran` (*Volailles du Chambaran*) · `@perrier` | `demo-chambaran` · `demo-perrier` | Dashboard Fournisseur IA, ses bons d'achat et réceptions uniquement (zéro donnée client) |
+
+Commandes de vérification et de remise à zéro :
+- `make check` : vérification TypeScript (`tsc --noEmit`) + contrôle design-system.
+- `make test` : **384 tests** unitaires et d'intégration du service IA (`apps/ai`), plus **59 tests** backend (`cd apps/backend && uv run pytest -q`).
+- `make reset` : réinitialise la base ERP SQLite à partir de `data/seed/`.
+- `curl -s http://localhost:4100/jev/stats` : télémétrie temps réel de TypeSafe Jev System One (`p50_ms`, `p90_ms`, nombre d'appels).
+
+---
+
+# Voice ERP kit (Documentation de référence du kit)
 
 A small but complete ERP for a food wholesaler, an AI service that reads and writes it through tools, and a
 push-to-talk voice harness. Built for the Stockline voice hackathon: make the voice agent **smart, fast and natural**.

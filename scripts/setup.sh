@@ -23,7 +23,7 @@ bold "1. Configuration"
 if [[ ! -f .env ]]; then cp .env.example .env; ok ".env created from .env.example (mock providers — add your keys later)"
 else ok ".env already there (kept)"; fi
 envval() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*$//'; }
-DATA_DIR="$(envval DATA_DIR)"; DATA_DIR="${DATA_DIR:-../hackathon-data}"
+DATA_DIR="$(envval DATA_DIR)"; DATA_DIR="${DATA_DIR:-./data}"
 WEB_PORT="$(envval WEB_PORT)"; WEB_PORT="${WEB_PORT:-5173}"
 API_PORT="$(envval API_PORT)"; API_PORT="${API_PORT:-4000}"
 
@@ -59,7 +59,7 @@ if [[ "$MODE" == docker ]]; then
   docker info >/dev/null 2>&1 || fail "Docker is installed but not running: start Docker Desktop"
   docker compose version >/dev/null 2>&1 || fail "docker compose v2 missing (update Docker)"
   ok "docker $(docker version --format '{{.Server.Version}}')"
-  if ! docker compose ps --status running 2>/dev/null | grep -q api; then
+  if ! docker compose ps --status running 2>/dev/null | grep -qE 'api|backend'; then
     for p in "$WEB_PORT" "$API_PORT" "$(envval AI_PORT)"; do
       [[ -z "$p" ]] || port_free "$p" || fail "port $p is already used (another 'pnpm dev'?). Stop it or change the port in .env"
     done
@@ -70,7 +70,7 @@ if [[ "$MODE" == docker ]]; then
   for _ in $(seq 1 90); do
     curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 && break; printf '.'; sleep 2
   done; echo
-  curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 || fail "API not answering — see: docker compose logs api"
+  curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 || fail "API not answering — see: docker compose logs backend"
   ok "api, ai and web are up"
   echo
   bold "Ready → http://localhost:$WEB_PORT"

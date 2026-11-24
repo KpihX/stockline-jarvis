@@ -18,7 +18,7 @@ services:
       DB_PATH: /db/erp.db
     volumes:
       - ./apps/backend/app:/app/apps/backend/app
-      - ${DATA_DIR:-../hackathon-data}:/data:ro
+      - ${DATA_DIR:-./data}:/data:ro
       - erp-db:/db
     ports: ["${API_PORT:-4000}:4000"]
     healthcheck:
@@ -42,7 +42,7 @@ services:
       AI_STATE_DIR: /state  # the AI service's own durable state (session memory); survives restart/recreate
     volumes:
       - ./apps/ai/app:/app/apps/ai/app
-      - ${DATA_DIR:-../hackathon-data}:/data:ro
+      - ${DATA_DIR:-./data}:/data:ro
       - ai-state:/state
     ports: ["${AI_PORT:-4100}:4100"]
     depends_on:
