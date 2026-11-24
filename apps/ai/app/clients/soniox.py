@@ -28,7 +28,7 @@ from .ws import chunked, once, open_ws, sending
 
 URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 FINALIZE = json.dumps({"type": "finalize"})
-MAX_TERMS_CHARS = 6000  # context terms budget, first terms first (Soniox limits the whole context's size)
+MAX_TERMS_CHARS = 10000  # context terms budget, first terms first (fits 400+ ERP entities + full CHR jargon)
 
 
 class SonioxSTT(STTClient):

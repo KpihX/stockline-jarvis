@@ -323,6 +323,19 @@ async def commit_call(call_id: str, request: Request):
     return rec
 
 
+@router.post("/calls/{call_id}/orders/{order_id}/confirm")
+async def confirm_call_order(call_id: str, order_id: str, request: Request):
+    guard = await _require_staff(request)
+    if isinstance(guard, JSONResponse):
+        return guard
+    try:
+        return await calls_svc.confirm_call_order(call_id, order_id, guard.erp_name)
+    except LookupError as exc:
+        return JSONResponse(ErrorResponse.of("not_found", str(exc)), status_code=404)
+    except Exception as exc:
+        return JSONResponse(ErrorResponse.of("erp_error", str(exc)), status_code=400)
+
+
 @router.post("/calls/simulate")
 async def simulate_call(body: SimulateBody, request: Request):
     guard = await _require_staff(request)

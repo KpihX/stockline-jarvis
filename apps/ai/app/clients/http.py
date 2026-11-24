@@ -59,17 +59,18 @@ async def post_stream(
     client: httpx.AsyncClient, url: str, *, who: str | None = None, limit: int = 300, retries: int = 3, **kwargs: Any
 ) -> httpx.Response:
     """POST and return the response *without* reading the body yet (streaming). Retries transient 429 bursts on live provider endpoints."""
-    delays = (1.0, 2.0, 3.5)
-    is_live_provider = any(h in url for h in ("nvidia.com", "deepseek.com", "openai.com", "anthropic.com"))
+    delays = (0.8, 1.8, 3.0)
+    is_live_provider = any(h in url for h in ("opencode.ai", "nvidia.com", "deepseek.com", "openai.com", "anthropic.com"))
     max_retries = retries if is_live_provider else 0
     res: httpx.Response | None = None
     for attempt in range(max_retries + 1):
         res = await client.send(client.build_request("POST", url, **kwargs), stream=True)
         if res.status_code not in (429, 502, 503, 504) or attempt >= max_retries:
             break
-        body_peek = (await res.aread()).decode("utf-8", "replace")[:180]
+        body_peek = (await res.aread()).decode("utf-8", "replace")[:220]
         await res.aclose()
-        if "workspace api usage limits" in body_peek.lower():
+        low_peek = body_peek.lower()
+        if any(k in low_peek for k in ("workspace api usage limits", "insufficient", "quota exceeded", "billing")):
             raise provider_error(who or httpx.URL(url).netloc.decode(), res.status_code, body_peek, limit)
         wait_s = delays[min(attempt, len(delays) - 1)]
         print(f"[http] {url} returned HTTP {res.status_code}, retry {attempt + 1}/{max_retries} in {wait_s}s…", flush=True)

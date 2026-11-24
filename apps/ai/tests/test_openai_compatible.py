@@ -171,3 +171,72 @@ async def test_nemotron_extra_body_and_no_unknown_fields():
     body = json.loads(seen[0].content)
     assert "stream_options" not in body and "authorization" not in seen[0].headers
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+async def test_non_streaming_json_response_and_missing_tool_index():
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": [{"type": "text", "text": "Je vérifie."}],
+                    "tool_calls": [
+                        {"id": "call_a", "function": {"name": "search", "arguments": {"query": "frites"}}},
+                        {"id": "call_b", "function": {"name": "get_price", "arguments": '{"clientId":"cli_1"}'}},
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+        "usage": {"prompt_tokens": 14, "completion_tokens": 6},
+    }
+    http, seen = recorder(httpx.Response(200, json=payload))
+    client = OpenAILLM("custom-x", "k", "https://llm.test/v1/chat/completions", provider="openai-compatible", include_usage=False, http=http)
+    out = await collect(client)
+    assert str(seen[0].url) == "https://llm.test/v1/chat/completions"
+    assert out == [
+        LLMText("Je vérifie."),
+        LLMUsage(14, 6),
+        LLMToolCall(ToolCall(id="call_a", name="search", arguments={"query": "frites"})),
+        LLMToolCall(ToolCall(id="call_b", name="get_price", arguments={"clientId": "cli_1"})),
+        LLMFinish("tool_calls"),
+    ]
+
+
+async def test_fallback_chain_order_and_key_isolation():
+    from app.clients.fallback import FallbackLLM
+    from app.clients.factory import make_llm_client
+    from app.config import LLMSettings
+
+    cfg = LLMSettings(
+        provider="opencode-go,nvidia,anthropic",
+        model="",
+        api_key="sk-ant-secret",
+        base_url="",
+        effort="low",
+        nvidia_api_key="nvapi-test",
+        opencode_api_key="oc-test",
+    )
+    client = make_llm_client(cfg)
+    assert isinstance(client, FallbackLLM)
+    assert [c.provider for c in client.clients] == ["opencode-go", "nvidia", "anthropic"]
+    assert client.clients[0].base_url == "https://opencode.ai/inference/go/openai/v1"  # type: ignore[attr-defined]
+    assert client.clients[0].api_key == "oc-test"  # type: ignore[attr-defined]
+    assert client.clients[1].api_key == "nvapi-test"  # type: ignore[attr-defined]
+    assert client.clients[2].api_key == "sk-ant-secret"  # type: ignore[attr-defined]
+
+
+async def test_fallback_llm_fails_over_before_output_on_429_and_401():
+    from app.clients.fallback import FallbackLLM
+
+    h1, _ = recorder(httpx.Response(429, text='{"error":"rate limit"}'))
+    h2, _ = recorder(sse({"choices": [{"delta": {"content": "OK depuis Nemotron"}}]}))
+    h3, _ = recorder(httpx.Response(401, text="bad key"))
+    fb = FallbackLLM(
+        [
+            OpenAILLM("deepseek-v4.1-flash", "k1", "https://opencode.ai/inference/go/openai/v1", provider="opencode-go", retries=0, http=h1),
+            OpenAILLM("nemotron", "k2", "https://integrate.api.nvidia.com/v1", provider="nvidia", retries=0, http=h2),
+            OpenAILLM("claude", "k3", "https://api.anthropic.com", provider="anthropic", retries=0, http=h3),
+        ]
+    )
+    assert await collect(fb) == [LLMText("OK depuis Nemotron")]
+    assert fb.model == "nemotron"

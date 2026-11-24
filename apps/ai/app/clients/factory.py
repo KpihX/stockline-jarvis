@@ -13,6 +13,7 @@ from .anthropic import AnthropicLLM
 from .base import LLMClient, STTClient, TTSClient
 from .deepgram import DeepgramSTT
 from .elevenlabs import ElevenLabsTTS
+from .fallback import FallbackLLM
 from .gemini import GeminiLLM
 from .gradium import GradiumSTT, GradiumTTS
 from .jev import JevClient
@@ -20,7 +21,7 @@ from .mock_llm import MockLLM
 from .mock_speech import MockSTT, MockTTS
 from .nvidia import NvidiaSTT
 from .openai import OpenAILLM, OpenAISTT, OpenAITTS
-from .presets import LLM_PRESETS
+from .presets import LLM_PRESETS, normalize_provider_name
 from .soniox import SonioxSTT
 
 DEFAULT_MODELS = {"openai": "gpt-4.1-mini", "anthropic": "claude-sonnet-5-5", "gemini": "gemini-2.5-flash"}
@@ -49,40 +50,135 @@ def need(name: str, value: str) -> str:
     return value
 
 
-def make_llm_client(cfg: LLMSettings) -> LLMClient:
-    model = cfg.model or DEFAULT_MODELS.get(cfg.provider, "")
-    if cfg.provider in LLM_PRESETS:  # nvidia | deepseek: readable defaults, all overridable from .env
-        preset = LLM_PRESETS[cfg.provider]
-        env_values = {"LLM_API_KEY": cfg.api_key, "NVIDIA_API_KEY": cfg.nvidia_api_key}
-        key = next((env_values[k] for k in preset.key_envs if env_values.get(k)), "")
+def _env_key_map(cfg: LLMSettings, *, chain_mode: bool) -> dict[str, str]:
+    """Build key lookup map. In multi-provider chains, never leak an Anthropic `sk-ant-` LLM_API_KEY to non-Anthropic providers."""
+    generic = cfg.api_key
+    is_anthropic_key = generic.startswith("sk-ant-")
+    return {
+        "OPENCODE_API_KEY": cfg.opencode_api_key,
+        "OPENCODE_GO_API_KEY": cfg.opencode_api_key,
+        "NVIDIA_API_KEY": cfg.nvidia_api_key,
+        "ANTHROPIC_API_KEY": cfg.anthropic_api_key,
+        "OPENAI_API_KEY": cfg.openai_api_key,
+        "GEMINI_API_KEY": cfg.gemini_api_key,
+        "DEEPSEEK_API_KEY": cfg.deepseek_api_key,
+        "LLM_API_KEY": "" if (chain_mode and is_anthropic_key) else generic,
+        "LLM_API_KEY_ANY": generic,
+    }
+
+
+def _parse_provider_specs(cfg: LLMSettings) -> list[tuple[str, str]]:
+    """Parse `LLM_PROVIDER` + `LLM_FALLBACKS` into ordered `(provider, explicit_model)` tuples."""
+    raw = [p.strip() for p in f"{cfg.provider},{cfg.fallbacks}".split(",") if p.strip()]
+    specs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in raw:
+        prov_part, _, mod_part = item.partition(":")
+        prov = normalize_provider_name(prov_part)
+        mod = mod_part.strip()
+        if (prov, mod) not in seen:
+            seen.add((prov, mod))
+            specs.append((prov, mod))
+    return specs or [("mock", "")]
+
+
+def _make_single_llm(
+    provider: str,
+    cfg: LLMSettings,
+    *,
+    explicit_model: str = "",
+    is_primary: bool = True,
+    chain_mode: bool = False,
+) -> LLMClient:
+    env_map = _env_key_map(cfg, chain_mode=chain_mode)
+    per_provider_model = {
+        "opencode-go": cfg.opencode_model,
+        "nvidia": cfg.nvidia_model,
+        "anthropic": cfg.anthropic_model,
+    }.get(provider, "")
+    model = explicit_model or per_provider_model or (cfg.model if is_primary else "") or DEFAULT_MODELS.get(provider, "")
+    base_url = cfg.base_url if is_primary else ""
+    retries = 1 if chain_mode else 2
+
+    if provider in LLM_PRESETS:  # opencode-go | nvidia | deepseek
+        preset = LLM_PRESETS[provider]
+        key = next((env_map[k] for k in preset.key_envs if env_map.get(k)), "")
+        include_usage = preset.include_usage if cfg.include_usage is None else cfg.include_usage
         return OpenAILLM(
-            cfg.model or preset.model,
+            model or preset.model,
             need(" / ".join(preset.key_envs), key),
-            cfg.base_url or preset.base_url,
-            provider=cfg.provider,
-            include_usage=preset.include_usage,
+            base_url or preset.base_url,
+            provider=provider,
+            include_usage=include_usage,
             extra_body=preset.extra_body(cfg.effort),
+            extra_headers=dict(preset.extra_headers),
+            retries=retries,
         )
-    match cfg.provider:
+    match provider:
         case "mock":
             return MockLLM()
         case "openai":
-            return OpenAILLM(model, need("LLM_API_KEY", cfg.api_key), cfg.base_url or "https://api.openai.com/v1")
+            key = env_map["OPENAI_API_KEY"] or env_map["LLM_API_KEY"]
+            include_usage = True if cfg.include_usage is None else cfg.include_usage
+            return OpenAILLM(
+                model,
+                need("OPENAI_API_KEY / LLM_API_KEY", key),
+                base_url or "https://api.openai.com/v1",
+                include_usage=include_usage,
+                retries=retries,
+            )
         case "openai-compatible":  # Groq, Mistral, OpenRouter, Ollama, vLLM… (API key optional for local servers)
+            key = env_map["LLM_API_KEY"]
+            include_usage = False if cfg.include_usage is None else cfg.include_usage
             return OpenAILLM(
                 need("LLM_MODEL", model),
-                cfg.api_key,
-                need("LLM_BASE_URL (e.g. http://localhost:11434/v1)", cfg.base_url),
+                key,
+                need("LLM_BASE_URL (e.g. http://localhost:11434/v1)", base_url or cfg.base_url),
                 provider="openai-compatible",
-                include_usage=False,
+                include_usage=include_usage,
+                retries=retries,
             )
         case "anthropic":
-            return AnthropicLLM(model, need("LLM_API_KEY", cfg.api_key), cfg.base_url or "https://api.anthropic.com", cfg.effort)
+            key = env_map["ANTHROPIC_API_KEY"] or env_map["LLM_API_KEY_ANY"]
+            return AnthropicLLM(
+                model,
+                need("ANTHROPIC_API_KEY / LLM_API_KEY", key),
+                base_url or "https://api.anthropic.com",
+                cfg.effort,
+                retries=retries,
+            )
         case "gemini":
-            return GeminiLLM(model, need("LLM_API_KEY", cfg.api_key), cfg.base_url or "https://generativelanguage.googleapis.com/v1beta")
+            key = env_map["GEMINI_API_KEY"] or env_map["LLM_API_KEY"]
+            return GeminiLLM(
+                model,
+                need("GEMINI_API_KEY / LLM_API_KEY", key),
+                base_url or "https://generativelanguage.googleapis.com/v1beta",
+            )
     raise ConfigError(
-        f'Unknown LLM_PROVIDER "{cfg.provider}" (openai | openai-compatible | nvidia | deepseek | anthropic | gemini | mock)'
+        f'Unknown LLM_PROVIDER "{provider}" (opencode-go | nvidia | anthropic | deepseek | openai | openai-compatible | gemini | mock)'
     )
+
+
+def make_llm_client(cfg: LLMSettings) -> LLMClient:
+    specs = _parse_provider_specs(cfg)
+    if len(specs) == 1:
+        prov, explicit_model = specs[0]
+        return _make_single_llm(prov, cfg, explicit_model=explicit_model, is_primary=True, chain_mode=False)
+
+    clients: list[LLMClient] = []
+    errors: list[str] = []
+    for idx, (prov, explicit_model) in enumerate(specs):
+        try:
+            clients.append(
+                _make_single_llm(prov, cfg, explicit_model=explicit_model, is_primary=(idx == 0), chain_mode=True)
+            )
+        except ConfigError as exc:
+            errors.append(f"{prov}: {exc}")
+    if not clients:
+        raise ConfigError("; ".join(errors))
+    if len(clients) == 1:
+        return clients[0]
+    return FallbackLLM(clients)
 
 
 def make_stt_client(cfg: STTSettings) -> STTClient:

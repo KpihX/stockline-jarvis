@@ -72,11 +72,16 @@ class OpenAILLM(LLMClient):
         provider: str = "openai",
         include_usage: bool = True,  # stream_options.include_usage: some compatible servers reject unknown fields
         extra_body: dict | None = None,  # provider-specific body fields (e.g. Nemotron: chat_template_kwargs.enable_thinking)
+        extra_headers: dict[str, str] | None = None,
+        retries: int = 2,
         http: httpx.AsyncClient | None = None,
     ):
         self.provider, self.model = provider, model
         self.api_key, self.base_url, self.include_usage = api_key, base_url.rstrip("/"), include_usage
-        self.extra_body, self.http = extra_body or {}, http
+        self.extra_body, self.extra_headers, self.retries, self.http = extra_body or {}, extra_headers or {}, retries, http
+
+    def _chat_url(self) -> str:
+        return self.base_url if self.base_url.endswith("/chat/completions") else f"{self.base_url}/chat/completions"
 
     def build_body(self, req: LLMRequest) -> dict:
         body: dict = {
@@ -96,33 +101,61 @@ class OpenAILLM(LLMClient):
         body.update(self.extra_body)  # last: lets a preset override optional fields without touching this adapter
         return body
 
+    @staticmethod
+    def _extract_text(raw_content) -> str:
+        if isinstance(raw_content, str):
+            return raw_content
+        if isinstance(raw_content, list):
+            return "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in raw_content
+            )
+        return str(raw_content)
+
     async def stream(self, req: LLMRequest) -> AsyncIterator[LLMEvent]:
-        headers = {"authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        headers = {**self.extra_headers}
+        if "opencode.ai" in self.base_url:
+            headers.setdefault("x-opencode-session", "stockline-jarvis-erp")
+            headers.setdefault("user-agent", "stockline-jarvis/1.0")
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
         res = await post_stream(
-            self.http or http_client(), f"{self.base_url}/chat/completions", json=self.build_body(req), headers=headers, limit=500
+            self.http or http_client(),
+            self._chat_url(),
+            json=self.build_body(req),
+            headers=headers,
+            limit=500,
+            retries=self.retries,
         )
 
         # Tool calls stream in pieces, keyed by index: accumulate them, emit them at the end.
         pending: dict[int, dict] = {}
         think = ThinkFilter()  # Nemotron / DeepSeek / DeepSeek-R1 style models may emit <think>…</think> in `content`
         finish_reason = ""
-        async for chunk in sse_json(res):
+
+        def _process_chunk(chunk: dict) -> list[LLMEvent]:
+            nonlocal finish_reason
+            out: list[LLMEvent] = []
             if chunk.get("error"):  # some compatible servers return errors INSIDE a 200 SSE stream
                 err = chunk["error"]
                 msg = err.get("message") if isinstance(err, dict) else str(err)
                 raise ProviderError(f"{self.provider}: {msg or 'stream error'}")
             choice = (chunk.get("choices") or [{}])[0] or {}
-            delta = choice.get("delta") or {}
+            delta = choice.get("delta") or choice.get("message") or {}
             if choice.get("finish_reason"):
                 finish_reason = choice["finish_reason"]
             # `reasoning_content` / `reasoning` are never spoken nor stored in the history: thinking is ephemeral.
             text = delta.get("content")
             if text:
-                shown = think.feed(text if isinstance(text, str) else str(text))
+                shown = think.feed(self._extract_text(text))
                 if shown:
-                    yield LLMText(shown)
+                    out.append(LLMText(shown))
             for tc in delta.get("tool_calls") or []:
-                cur = pending.setdefault(tc.get("index") or 0, {"id": "", "name": "", "args": ""})
+                idx = tc.get("index")
+                if idx is None:
+                    tc_id = tc.get("id")
+                    idx = next((k for k, v in pending.items() if tc_id and v["id"] == tc_id), len(pending)) if tc_id else 0
+                cur = pending.setdefault(idx, {"id": "", "name": "", "args": ""})
                 fn = tc.get("function") or {}
                 if tc.get("id"):
                     cur["id"] = tc["id"]
@@ -133,11 +166,25 @@ class OpenAILLM(LLMClient):
             if chunk.get("usage"):
                 u = chunk["usage"]
                 cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens")
-                yield LLMUsage(
-                    u.get("prompt_tokens", u.get("input_tokens")),
-                    u.get("completion_tokens", u.get("output_tokens")),
-                    cache_read_input_tokens=cached,
+                out.append(
+                    LLMUsage(
+                        u.get("prompt_tokens", u.get("input_tokens")),
+                        u.get("completion_tokens", u.get("output_tokens")),
+                        cache_read_input_tokens=cached,
+                    )
                 )
+            return out
+
+        content_type = (res.headers.get("content-type") or "").lower()
+        if "application/json" in content_type and "text/event-stream" not in content_type:
+            raw_bytes = await res.aread()
+            await res.aclose()
+            for ev in _process_chunk(json.loads(raw_bytes.decode("utf-8", "replace"))):
+                yield ev
+        else:
+            async for chunk in sse_json(res):
+                for ev in _process_chunk(chunk):
+                    yield ev
 
         tail = think.flush()  # a final <think> fragment is discarded, a normal tail is emitted
         if tail:

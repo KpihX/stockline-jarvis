@@ -86,3 +86,13 @@ async def test_calls_reset_preserves_phone_bindings(monkeypatch, tmp_path):
     assert calls_svc.get_active_and_recent()["recent"] == []
     assert calls_svc.list_phone_bindings()[0]["clientId"] == "cli_0082"
 
+
+def test_clean_call_transcript_fixes_verified_stt_homophones():
+    assert (
+        calls_svc.clean_call_transcript("Mets-moi 200 kg pour le premier d'exemple, on ferme jusqu'à 1000 exemples.")
+        == "Mets-moi 200 kg pour le 1er décembre, on ferme jusqu'à mi-décembre."
+    )
+    # Must NOT alter valid client names like "EHPAD Les Lilas"
+    assert calls_svc.clean_call_transcript("Bonjour c'est l'EHPAD Les Lilas.") == "Bonjour c'est l'EHPAD Les Lilas."
+
+

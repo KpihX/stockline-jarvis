@@ -12,6 +12,7 @@ import base64
 import json
 import math
 import os
+import re
 import sqlite3
 import struct
 import time
@@ -29,19 +30,41 @@ from app.clients.http import http_client
 from app.config import settings
 from app.lexicon.runtime import annotate
 from app.policy import Caller
-from app.schemas import ChatMessage, DoneEvent, TextEvent, ToolResultEvent
+from app.schemas import ChatMessage, DoneEvent, ErrorEvent, TextEvent, ToolResultEvent
 from app.services import jev_router
 from app.services.vocabulary import stt_hint
 from app.tools import all_tools
 from app.tools.erp import ErpClient
 
 _SILENCE_MARKERS = {"[BLANK_AUDIO]", "(silence)", "[silence]", "(musique)", "[Music]"}
+_CALL_STT_HINT = (
+    "Alpes Restauration, Le Refuge Payet, 1er décembre, mi-décembre, mi-avril, décembre, janvier, "
+    "mets-moi, deux cents kilos, vingt kilos, frites surgelées, raclette tranchée, raclette en meule, "
+    "crème fraîche, crème liquide, reblochon fermier, confirme la commande, ERP"
+)
+_STT_HOMOPHONES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(?:1er|premier)\s+d['’]exemples?\b", re.IGNORECASE), "1er décembre"),
+    (re.compile(r"\b(\d{1,2})\s+d['’]exemples?\b", re.IGNORECASE), r"\1 décembre"),
+    (re.compile(r"\bmi[- ]exemples?\b", re.IGNORECASE), "mi-décembre"),
+    (re.compile(r"\b(?:1000|mille)\s+exemples?\b", re.IGNORECASE), "mi-décembre"),
+)
+
+
+def clean_call_transcript(text: str) -> str:
+    """Fix narrow telephone-codec homophones verified on live 16 kHz French calls without altering valid names."""
+    out = text
+    for pattern, repl in _STT_HOMOPHONES:
+        out = pattern.sub(repl, out)
+    return out
+
 
 _calls: dict[str, dict[str, Any]] = {}
 _pending_sim_texts: dict[str, list[str]] = {}
 _subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 _stt_sem = asyncio.Semaphore(4)
 _copilot_locks: dict[str, asyncio.Lock] = {}
+_copilot_versions: dict[str, int] = {}
+_copilot_tasks: dict[str, asyncio.Task[Any]] = {}
 
 
 def _wa_url(path: str = "") -> str:
@@ -376,6 +399,7 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
         )
 
         reply = ""
+        agent_error = ""
         new_cmds: list[dict[str, Any]] = list(rec.get("linkedCommands") or [])
         new_warnings: list[dict[str, str]] = list(rec.get("warnings") or [])
         seen_ids = {c.get("id") for c in new_cmds if c.get("id")}
@@ -416,12 +440,16 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
                             if key not in seen_warns:
                                 seen_warns.add(key)
                                 new_warnings.append({"code": key[0], "message": key[1]})
+                elif isinstance(ev, ErrorEvent):
+                    agent_error = ev.message
                 elif isinstance(ev, DoneEvent) and not reply and ev.message.content:
                     reply = ev.message.content
         except Exception as exc:
             print(f"[calls] copilot error for {call_id}: {exc}", flush=True)
-            if not reply:
-                reply = f"Copilote indisponible ({type(exc).__name__})"
+            agent_error = str(exc) or type(exc).__name__
+
+        if not reply.strip() and agent_error:
+            reply = f"Copilote en difficulté ({agent_error}) — utilisez « Extraire vers ERP » ou « Confirmer »."
 
         rec["linkedCommands"] = new_cmds
         rec["warnings"] = new_warnings
@@ -452,7 +480,7 @@ async def _process_utterance(
 ) -> None:
     try:
         stt = get_stt_client()
-        hint = await stt_hint(stt.name, None, rec.get("clientId") or None)
+        hint = await stt_hint(stt.name, _CALL_STT_HINT, rec.get("clientId") or None)
         if stt.name == "mock" and speaker == "client" and _pending_sim_texts.get(call_id):
             hint = _pending_sim_texts[call_id].pop(0)
 
@@ -464,6 +492,8 @@ async def _process_utterance(
                 text = _pending_sim_texts[call_id].pop(0)
             else:
                 return
+
+        text = clean_call_transcript(text)
 
         jev_ms: int | None = None
         jev_route: str | None = None
@@ -501,17 +531,36 @@ async def _process_utterance(
         await publish({"type": "call.transcript", "callId": call_id, "entry": entry})
 
         if speaker == "client":
-            asyncio.create_task(_safe_copilot(call_id))
+            _schedule_copilot(call_id)
     except Exception as exc:
         err_msg = f"STT error: {exc}"
         await publish({"type": "call.error", "callId": call_id, "error": err_msg})
 
 
-async def _safe_copilot(call_id: str) -> None:
+def _schedule_copilot(call_id: str) -> None:
+    """Coalesce rapid client turns: never stack N parallel/queued LLM calls behind one call lock."""
+    _copilot_versions[call_id] = _copilot_versions.get(call_id, 0) + 1
+    existing = _copilot_tasks.get(call_id)
+    if existing and not existing.done():
+        return
+    _copilot_tasks[call_id] = asyncio.create_task(_copilot_loop(call_id))
+
+
+async def _copilot_loop(call_id: str) -> None:
     try:
-        await _run_call_copilot(call_id)
+        while True:
+            seen_ver = _copilot_versions.get(call_id, 0)
+            await _run_call_copilot(call_id)
+            if _copilot_versions.get(call_id, 0) == seen_ver:
+                break
     except Exception as exc:
         print(f"[calls] background copilot failed for {call_id}: {exc}", flush=True)
+    finally:
+        _copilot_tasks.pop(call_id, None)
+
+
+async def _safe_copilot(call_id: str) -> None:
+    _schedule_copilot(call_id)
 
 
 async def handle_webhook(payload: dict[str, Any]) -> dict[str, Any]:
@@ -679,6 +728,10 @@ async def reset_test_state() -> dict[str, Any]:
     _calls.clear()
     _pending_sim_texts.clear()
     _copilot_locks.clear()
+    _copilot_versions.clear()
+    for task in list(_copilot_tasks.values()):
+        task.cancel()
+    _copilot_tasks.clear()
     with _conn() as con:
         con.execute("DELETE FROM call_sessions")
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -687,6 +740,53 @@ async def reset_test_state() -> dict[str, Any]:
         erp_res = resp.json()
     await publish({"type": "calls.reset"})
     return {"ok": True, "erp": erp_res, "preservedBindings": len(list_phone_bindings())}
+
+
+async def confirm_call_order(call_id: str, order_id: str, actor_name: str = "Gestionnaire") -> dict[str, Any]:
+    """Confirm a draft order linked to a call, updating the call record and broadcasting SSE."""
+    rec = get_call(call_id)
+    if not rec:
+        raise LookupError(f"Appel introuvable : {call_id}")
+    _calls[call_id] = rec
+    erp = ErpClient("voice_agent", actor_name)
+    r = await erp.post(f"/api/orders/{order_id}/confirm")
+    cid = str(r.get("id") or order_id)
+    cmd_obj = {
+        "id": cid,
+        "number": r.get("number") or cid,
+        "status": r.get("status") or "confirmed",
+        "deliveryDate": r.get("deliveryDate") or "",
+        "totalHt": r.get("totalHt") or 0,
+        "lineCount": len(r.get("lines") or []),
+    }
+    cmds = list(rec.get("linkedCommands") or [])
+    if any(c.get("id") == cid for c in cmds):
+        cmds = [cmd_obj if c.get("id") == cid else c for c in cmds]
+    else:
+        cmds.append(cmd_obj)
+    warns = list(rec.get("warnings") or [])
+    seen_warns = {(w.get("code"), w.get("message")) for w in warns}
+    for w in r.get("warnings") or []:
+        if isinstance(w, dict) and w.get("message"):
+            key = (str(w.get("code", "warning")), str(w["message"]))
+            if key not in seen_warns:
+                seen_warns.add(key)
+                warns.append({"code": key[0], "message": key[1]})
+    rec["linkedCommands"] = cmds
+    rec["warnings"] = warns
+    rec["committed"] = True
+    rec["copilotNote"] = f"Commande {cmd_obj['number']} confirmée dans l'ERP ({cmd_obj['totalHt']:.2f} € HT)."
+    _save_call(rec)
+    await publish(
+        {
+            "type": "call.copilot",
+            "callId": call_id,
+            "copilotNote": rec["copilotNote"],
+            "linkedCommands": cmds,
+            "warnings": warns,
+        }
+    )
+    return rec
 
 
 async def wa_get(path: str) -> dict[str, Any]:

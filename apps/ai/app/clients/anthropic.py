@@ -39,9 +39,17 @@ class AnthropicLLM(LLMClient):
         api_key: str,
         base_url: str = "https://api.anthropic.com",
         effort: str | None = "low",  # "low" keeps voice latency down; raise for harder reasoning
+        retries: int = 2,
         http: httpx.AsyncClient | None = None,
     ):
-        self.model, self.api_key, self.base_url, self.effort, self.http = model, api_key, base_url.rstrip("/"), effort, http
+        self.model, self.api_key, self.base_url, self.effort, self.retries, self.http = (
+            model,
+            api_key,
+            base_url.rstrip("/"),
+            effort,
+            retries,
+            http,
+        )
 
     def build_body(self, req: LLMRequest) -> dict:
         messages = to_anthropic_messages(req.messages)
@@ -65,7 +73,15 @@ class AnthropicLLM(LLMClient):
 
     async def stream(self, req: LLMRequest) -> AsyncIterator[LLMEvent]:
         headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"}
-        res = await post_stream(self.http or http_client(), f"{self.base_url}/v1/messages", json=self.build_body(req), headers=headers, limit=500)
+        res = await post_stream(
+            self.http or http_client(),
+            f"{self.base_url}/v1/messages",
+            who="anthropic",
+            json=self.build_body(req),
+            headers=headers,
+            limit=500,
+            retries=self.retries,
+        )
 
         # Content blocks stream by index; tool_use inputs arrive as partial JSON strings.
         blocks: dict[int, dict] = {}

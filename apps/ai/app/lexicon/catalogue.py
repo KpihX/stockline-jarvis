@@ -14,12 +14,26 @@ from .learned import Learned
 from .phonetic import words
 from .resolver import Entry, Index, Usual
 
-# CHR / Savoie words people say; sent to the STT, and protected from "corrections". Only those not already a product alias.
+# CHR / Savoie / wholesale order words people say; sent to the STT, and protected from "corrections".
 JARGON = (
-    "comme d'hab", "d'hab", "comme d'habitude", "la même chose", "pareil que d'habitude", "meule", "colis", "carton", "caisse",
-    "plateau", "seau", "barquette", "bidon", "pastille verte", "tartiflette", "pierrade", "raclette", "diots", "crozets",
-    "farçon", "pormonier", "matafan", "gratin dauphinois", "ravioles du Royans", "noix de Grenoble", "DLC", "label rouge", "AOP", "IGP",
-    "précuit", "surgelé", "sous vide", "demi-gros", "chez", "livraison tournée",
+    # Habitudes & tournures de commande vocale
+    "comme d'hab", "d'hab", "comme d'habitude", "la même chose", "pareil que d'habitude",
+    "mets-moi", "laisse-moi", "ajoute", "rajoute", "envoie-moi", "prépare-moi",
+    "confirme la commande", "c'est bon", "on maintient", "pour demain", "pour jeudi",
+    # Unités & quantités fréquentes
+    "kilos", "litres", "pièces", "meule", "colis", "carton", "caisse",
+    "plateau", "seau", "barquette", "bidon", "brique", "sac",
+    "dix kilos", "quinze kilos", "vingt kilos", "trente kilos", "cinquante kilos", "cent kilos", "deux cents kilos",
+    # Calendrier, saisonnalité & vocabulaire ERP
+    "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+    "1er décembre", "premier décembre", "mi-décembre", "mi-avril", "hors saison", "tournée", "livraison tournée",
+    "ERP", "Alpes Restauration", "brouillon", "tarif négocié", "demi-gros", "chez",
+    # Produits & appellations CHR / Savoie
+    "pastille verte", "tartiflette", "pierrade", "raclette", "raclette tranchée", "raclette en meule",
+    "reblochon", "reblochon fermier", "tomme de Savoie", "frites surgelées", "crème fraîche", "crème liquide",
+    "jambon cru", "beurre doux", "carottes des sables", "pommes de terre",
+    "diots", "crozets", "farçon", "pormonier", "matafan", "gratin dauphinois",
+    "ravioles du Royans", "noix de Grenoble", "DLC", "label rouge", "AOP", "IGP", "précuit", "surgelé", "sous vide",
 )  # fmt: skip
 
 _ARTICLE = re.compile(r"^(?:le|la|les|l')\s*", re.IGNORECASE)

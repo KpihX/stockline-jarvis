@@ -9,7 +9,7 @@ import {
   AlertTriangle, ArrowUpRight, CheckCircle2, Mic, MicOff, Phone, PhoneCall, PhoneIncoming,
   PhoneOff, QrCode, RotateCcw, Send, ShieldAlert, Sparkles, UserCheck, Volume2,
 } from "lucide-react";
-import { fmtDateLong } from "@/lib/format";
+import { fmtDateLong, fmtMoney } from "@/lib/format";
 import { useClients } from "@/lib/queries";
 import { Button, Dot, EmptyState, Field, Input, Page, PageBody, PageHeader, Section, Select, StatusDot } from "@/ui";
 import { useAuth } from "@/features/auth/auth-store";
@@ -289,17 +289,34 @@ export default function CallsPage() {
                     {displayedCall.linkedCommands?.length ? (
                       <div className="flex flex-wrap gap-2">
                         {displayedCall.linkedCommands.map((cmd) => (
-                          <Link
+                          <div
                             key={cmd.id}
-                            to={`/orders/${cmd.id}`}
-                            className="inline-flex items-center gap-2 rounded-[4px] border border-primary/30 bg-card px-2.5 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-primary"
+                            className="inline-flex items-center gap-2 rounded-[4px] border border-primary/30 bg-card px-2.5 py-1.5 text-[12px] font-medium text-foreground"
                           >
-                            <CheckCircle2 size={13} className="text-primary" />
-                            <span className="font-mono">{cmd.number}</span>
-                            <StatusDot kind="order" value={cmd.status as "draft" | "confirmed"} />
-                            {cmd.deliveryDate ? <span className="text-muted-foreground">{cmd.deliveryDate}</span> : null}
-                            <ArrowUpRight size={12} className="text-muted-foreground" />
-                          </Link>
+                            <Link
+                              to={`/orders/${cmd.id}`}
+                              className="inline-flex items-center gap-2 transition-colors hover:text-primary"
+                            >
+                              <CheckCircle2 size={13} className="text-primary" />
+                              <span className="font-mono">{cmd.number}</span>
+                              <StatusDot kind="order" value={cmd.status as "draft" | "confirmed"} />
+                              {cmd.totalHt ? (
+                                <span className="font-mono text-foreground">{fmtMoney(cmd.totalHt)} HT</span>
+                              ) : null}
+                              {cmd.deliveryDate ? <span className="text-muted-foreground">{cmd.deliveryDate}</span> : null}
+                              <ArrowUpRight size={12} className="text-muted-foreground" />
+                            </Link>
+                            {cmd.status === "draft" ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={cs.busy}
+                                onClick={() => void callsStore.confirmOrder(displayedCall.callId, cmd.id)}
+                              >
+                                Confirmer
+                              </Button>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     ) : null}

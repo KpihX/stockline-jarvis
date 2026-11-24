@@ -32,12 +32,22 @@ def env_float(name: str) -> float | None:
 
 @dataclass(frozen=True)
 class LLMSettings:
-    provider: str  # openai | openai-compatible | anthropic | gemini | mock
+    provider: str  # opencode-go | nvidia | deepseek | openai | openai-compatible | anthropic | gemini | mock (or comma-separated chain)
     model: str  # empty → the provider's default model
     api_key: str
     base_url: str  # empty → the provider's public endpoint
     effort: str  # anthropic: low | medium | high · nvidia preset: none | low | medium | high (thinking on/off)
     nvidia_api_key: str = ""  # NVIDIA_API_KEY: fallback key for LLM_PROVIDER=nvidia (same key as NVIDIA STT)
+    opencode_api_key: str = ""  # OPENCODE_API_KEY / OPENCODE_GO_API_KEY
+    anthropic_api_key: str = ""  # ANTHROPIC_API_KEY (fallback: LLM_API_KEY)
+    openai_api_key: str = ""  # OPENAI_API_KEY (fallback: LLM_API_KEY)
+    gemini_api_key: str = ""  # GEMINI_API_KEY (fallback: LLM_API_KEY)
+    deepseek_api_key: str = ""  # DEEPSEEK_API_KEY (fallback: LLM_API_KEY)
+    fallbacks: str = ""  # LLM_FALLBACKS: optional comma-separated fallback providers (e.g. "nvidia,anthropic")
+    opencode_model: str = ""  # optional per-provider override in multi-provider fallback chains
+    nvidia_model: str = ""
+    anthropic_model: str = ""
+    include_usage: bool | None = None  # LLM_INCLUDE_USAGE: optional 1/0 override for openai-compatible endpoints
 
 
 @dataclass(frozen=True)
@@ -95,6 +105,16 @@ settings = Settings(
         base_url=env("LLM_BASE_URL"),
         effort=env("LLM_EFFORT", "low"),
         nvidia_api_key=env("NVIDIA_API_KEY"),
+        opencode_api_key=env("OPENCODE_API_KEY") or env("OPENCODE_GO_API_KEY"),
+        anthropic_api_key=env("ANTHROPIC_API_KEY"),
+        openai_api_key=env("OPENAI_API_KEY"),
+        gemini_api_key=env("GEMINI_API_KEY"),
+        deepseek_api_key=env("DEEPSEEK_API_KEY"),
+        fallbacks=env("LLM_FALLBACKS").lower(),
+        opencode_model=env("OPENCODE_MODEL"),
+        nvidia_model=env("NVIDIA_MODEL"),
+        anthropic_model=env("ANTHROPIC_MODEL"),
+        include_usage={"1": True, "true": True, "0": False, "false": False}.get(env("LLM_INCLUDE_USAGE").lower()),
     ),
     stt=STTSettings(
         provider=env("STT_PROVIDER", "mock").lower(),

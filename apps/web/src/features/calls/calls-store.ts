@@ -402,6 +402,22 @@ export const callsStore = {
       set({ busy: false });
     }
   },
+  async confirmOrder(callId: string, orderId: string) {
+    set({ busy: true });
+    try {
+      const updated = await aiFetch<CallSession>(
+        `/calls/${encodeURIComponent(callId)}/orders/${encodeURIComponent(orderId)}/confirm`,
+        { method: "POST" },
+      );
+      if (state.activeCall?.callId === callId) set({ activeCall: updated });
+      upsertRecent(updated);
+      toast.success("Commande confirmée dans l'ERP !");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Confirmation impossible");
+    } finally {
+      set({ busy: false });
+    }
+  },
   async simulateCall(phone: string, text: string, clientId?: string) {
     set({ busy: true });
     try {
