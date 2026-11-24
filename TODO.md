@@ -73,14 +73,14 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## Delivery
 - [x] `data/` seed bundled and `README.md` updated for `make setup` from a fresh clone
-- [x] Branch `feat/team-01-kit` pushed to GitLab and GitHub
+- [x] Branch `stockline-team01` pushed to GitLab and GitHub, plus dedicated repo `KpihX/stockline-team01`
 - [x] `DECISIONS.md` finalized with proactivity thesis, architecture, and measured tables
 - [x] Slides (`presentation/`, <= 5 min) + Demo video (`demo/stockline-team01-demo.mp4`, <= 2 min)
 - [x] Live rehearsal & `make reset` before submission (Tue 17:30)
 
 ## Open questions
 - NVIDIA/Nemotron: only usable with KpihX's own NVIDIA key (kit keys = Anthropic, Soniox, ElevenLabs, Jev).
-- Dedicated private repo or keep `feat/team-01-kit` inside `stock-ai`?
+- Dedicated private repo `KpihX/stockline-team01` created and synced alongside `stockline-team01` branch.
 
 ## Session memory + latency (2026-11-23, details DECISIONS.md §6)
 - [x] Session memory: SQLite under `$AI_STATE_DIR` (Docker volume `ai-state`), write-through per turn, restore on reconnect, TTL 12 h, cap 200, `reset` deletes, falls back to memory if the dir is missing/unwritable/corrupted; survives an uvicorn hot reload (checked live)

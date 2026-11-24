@@ -72,7 +72,7 @@ Everything runs offline out of the box: with the `mock` providers the LLM, speec
 deterministic fakes that still call the real ERP. Add your keys when you are ready.
 
 > **Team 01 (Alpes Restauration — Proactive Voice & ERP Copilot):** `data/seed` is bundled so `make setup` runs cleanly from a fresh clone.
-> Key additions on `feat/team-01-kit`:
+> Key additions on `stockline-team01`:
 > - **5-role authentication & strict single-admin** (`/login` with 1-click demo profiles: `admin`, `thibault`, `emilie`, `payet`, `leila`, `igloo`, `chambaran`, `perrier`; `/accounts` CRUD with `HTTP 409` on a 2nd admin).
 > - **AI-helped personalised Dashboard** (`GET /ai/suggestions`): live briefing + rotating clickable action cards routing directly to **Voix** or **Assistant**.
 > - **Unified Assistant ↔ Voix sessions** (`apps/ai/app/services/sessions.py` + `sessions.db`): list, search, rename, delete, resume, and continue a voice turn inside text Assistant (and vice-versa).

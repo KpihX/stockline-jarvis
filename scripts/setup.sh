@@ -65,12 +65,14 @@ if [[ "$MODE" == docker ]]; then
     done
   fi
   bold "4. Build & start (first build ≈ 2–4 min)"
+  AI_PORT="$(envval AI_PORT)"; AI_PORT="${AI_PORT:-4100}"
   docker compose up -d --build
-  printf '  waiting for the ERP'
+  printf '  waiting for the ERP & AI services'
   for _ in $(seq 1 90); do
-    curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 && break; printf '.'; sleep 2
+    curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 && curl -fsS "http://localhost:$AI_PORT/health" >/dev/null 2>&1 && break; printf '.'; sleep 2
   done; echo
   curl -fsS "http://localhost:$API_PORT/api/meta" >/dev/null 2>&1 || fail "API not answering — see: docker compose logs backend"
+  curl -fsS "http://localhost:$AI_PORT/health" >/dev/null 2>&1 || fail "AI service not answering — see: docker compose logs ai"
   ok "api, ai and web are up"
   echo
   bold "Ready → http://localhost:$WEB_PORT"
