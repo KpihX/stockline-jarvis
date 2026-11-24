@@ -361,18 +361,18 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
             verified=True,
         )
         session_block = await build_session_block(caller) if client_id else ""
-        existing_cmds = ", ".join(c.get("number") or c.get("id", "") for c in (rec.get("linkedCommands") or []))
+        existing_cmds = ", ".join(f"{c.get('id')} ({c.get('number') or c.get('id')})" for c in (rec.get("linkedCommands") or []))
         prompt = (
             f"Appel téléphonique WhatsApp en cours avec {client_name}"
             + (f" ({client_id})" if client_id else f" (numéro {rec.get('phoneNumber', '?')}, client non encore associé)")
             + ".\n"
-            + (f"Commandes déjà créées dans cet appel : {existing_cmds} (ajoute des lignes dessus avec add_order_line plutôt que d'en recréer une autre, sauf date différente).\n" if existing_cmds else "")
+            + (f"Commandes déjà créées dans cet appel : {existing_cmds} — si le client ajoute ou modifie un article pour la même livraison, utilise `add_order_line(order_id='<id ord_...>')` avec l'identifiant technique `ord_...` ci-dessus au lieu de créer une nouvelle commande.\n" if existing_cmds else "")
             + "Voici la transcription en direct :\n"
             + f"{dialogue}\n\n"
-            + "Consigne stricte pour le copilote en direct :\n"
-            + "- Si le client demande un produit avec une quantité (ou « comme d'habitude »), vérifie le client si inconnu, crée ou complète la pré-commande brouillon (`create_draft_order` / `add_order_line`) avec `x-actor` automatiquement posé.\n"
-            + "- Ne confirme jamais une commande sans accord explicite du client/gestionnaire dans le dialogue.\n"
-            + "- Réponds en 1 à 2 phrases ultra-courtes pour le commercial à l'écran : résumé de l'action ERP, prix appliqué, et TOUTES les alertes `warnings` (`season_closed`, `unusual_quantity`, blocage crédit)."
+            + "Consignes STRICTES pour le copilote en direct :\n"
+            + "1. RÈGLE D'ABSTENTION (ZÉRO INVENTIONS) : n'appelle JAMAIS `create_draft_order` ni `add_order_line` tant que le client n'a pas nommé EXPLICITEMENT au moins un produit précis ET sa quantité (ou dit explicitement « comme d'habitude »). Si le client reste vague (« du fromage ou de la crème », simple salutation), ne touche PAS à l'ERP : consulte le stock/tarif (`search`, `get_product_stock`) et donne au gestionnaire la question de clarification exacte à poser.\n"
+            + "2. Dès qu'un produit + quantité est clair, crée ou complète la pré-commande brouillon (`create_draft_order` / `add_order_line`). Ne confirme (`confirm_order`) que sur accord explicite dans le dialogue.\n"
+            + "3. Réponds en 1 à 2 phrases ultra-courtes pour le commercial à l'écran : état du brouillon ou clarification attendue, prix négocié, et TOUTES les alertes `warnings` (`season_closed`, `unusual_quantity`, client bloqué)."
         )
 
         reply = ""
@@ -659,6 +659,34 @@ def get_call(call_id: str) -> dict[str, Any] | None:
     with _conn() as con:
         row = con.execute("SELECT * FROM call_sessions WHERE call_id=?", (call_id,)).fetchone()
         return _row_to_dict(row) if row else None
+
+
+async def reset_test_state() -> dict[str, Any]:
+    """Reset call history & ERP database back to seed while KEEPING WhatsApp session & 337 phone bindings intact."""
+    active_ids = {cid for cid, rec in _calls.items() if rec.get("status") in ("ringing", "active")}
+    try:
+        wa_calls = await wa_get("/calls")
+        for wc in wa_calls.get("items") or []:
+            if wc.get("call_id"):
+                active_ids.add(str(wc["call_id"]))
+    except Exception:
+        pass
+    for cid in active_ids:
+        try:
+            await wa_post("/call/hangup", {"call_id": cid, "reason": "reset"}, timeout=4.0)
+        except Exception:
+            pass
+    _calls.clear()
+    _pending_sim_texts.clear()
+    _copilot_locks.clear()
+    with _conn() as con:
+        con.execute("DELETE FROM call_sessions")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(f"{settings.erp_api_url.rstrip('/')}/api/admin/reset")
+        resp.raise_for_status()
+        erp_res = resp.json()
+    await publish({"type": "calls.reset"})
+    return {"ok": True, "erp": erp_res, "preservedBindings": len(list_phone_bindings())}
 
 
 async def wa_get(path: str) -> dict[str, Any]:

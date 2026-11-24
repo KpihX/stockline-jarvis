@@ -179,6 +179,11 @@ function handleSsePayload(ev: Record<string, unknown>) {
     void callsStore.refreshCalls();
     return;
   }
+  if (type === "calls.reset") {
+    closeWebRtcPeer();
+    set({ activeCall: null, recentCalls: [], selectedCallId: null });
+    return;
+  }
   if (type === "call.error") {
     toast.error(String(ev.error || "Erreur sur l'appel WhatsApp"));
   }
@@ -404,13 +409,12 @@ export const callsStore = {
         method: "POST",
         body: JSON.stringify({ phone, text, clientId: clientId || undefined }),
       });
-      await this.refreshCalls();
-      set({ selectedCallId: res.callId });
+      set({ busy: false, selectedCallId: res.callId });
+      void this.refreshCalls();
       toast.success("Sonnerie d'appel simulée !");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Simulation impossible");
-    } finally {
       set({ busy: false });
+      toast.error(e instanceof Error ? e.message : "Simulation impossible");
     }
   },
   async injectText(callId: string, text: string, speaker: "client" | "manager") {
@@ -445,6 +449,19 @@ export const callsStore = {
       toast.success(`Numéro ${res.phoneDigits} associé à ${res.clientName}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Association échouée");
+    }
+  },
+  async resetTests() {
+    set({ busy: true });
+    try {
+      await aiFetch("/calls/reset", { method: "POST" });
+      closeWebRtcPeer();
+      set({ activeCall: null, recentCalls: [], selectedCallId: null });
+      toast.success("Tests réinitialisés (ERP + appels vidés, WhatsApp et n° 337 conservés)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Réinitialisation échouée");
+    } finally {
+      set({ busy: false });
     }
   },
 };

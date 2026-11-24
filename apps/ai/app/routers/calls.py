@@ -168,6 +168,15 @@ async def calls_active(request: Request):
     return calls_svc.get_active_and_recent()
 
 
+@router.post("/calls/reset")
+async def calls_reset(request: Request):
+    """Wipe test calls + reset ERP to seed while preserving WhatsApp QR pairing and phone bindings."""
+    guard = await _require_staff(request)
+    if isinstance(guard, JSONResponse):
+        return guard
+    return await calls_svc.reset_test_state()
+
+
 @router.get("/calls/stream")
 async def calls_stream(request: Request, token: str | None = None):
     # EventSource cannot set Authorization header cleanly, so accept ?token= fallback too

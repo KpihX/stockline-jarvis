@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, Mic, MicOff, Phone, PhoneCall, PhoneIncoming,
-  PhoneOff, QrCode, Send, ShieldAlert, Sparkles, UserCheck, Volume2,
+  PhoneOff, QrCode, RotateCcw, Send, ShieldAlert, Sparkles, UserCheck, Volume2,
 } from "lucide-react";
 import { fmtDateLong } from "@/lib/format";
 import { useClients } from "@/lib/queries";
@@ -127,6 +127,9 @@ export default function CallsPage() {
         }
         actions={
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="default" icon={RotateCcw} loading={cs.busy} onClick={() => void callsStore.resetTests()}>
+              Réinit tests (ERP + Appels)
+            </Button>
             <Button size="sm" variant="default" icon={QrCode} onClick={() => navigate("/settings")}>
               {cs.wa.status === "connected" ? "Réglages WA" : "Scanner QR WhatsApp"}
             </Button>
