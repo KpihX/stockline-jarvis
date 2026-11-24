@@ -28,7 +28,8 @@ from app.agent.prompts import build_session_block
 from app.clients import get_llm_client, get_stt_client
 from app.clients.http import http_client
 from app.config import settings
-from app.lexicon.runtime import annotate
+from app.lexicon.resolver import format_hints
+from app.lexicon.runtime import analyse, annotate
 from app.policy import Caller
 from app.schemas import ChatMessage, DoneEvent, ErrorEvent, TextEvent, ToolResultEvent
 from app.services import jev_router
@@ -37,6 +38,7 @@ from app.tools import all_tools
 from app.tools.erp import ErpClient
 
 _SILENCE_MARKERS = {"[BLANK_AUDIO]", "(silence)", "[silence]", "(musique)", "[Music]"}
+_NOISE_HALLUCINATIONS = {"des agréments.", "des agréments", "yeah.", "yeah", "you", "thank you.", "merci d'avoir regardé cette vidéo."}
 _CALL_STT_HINT = (
     "Alpes Restauration, Le Refuge Payet, 1er décembre, mi-décembre, mi-avril, décembre, janvier, "
     "mets-moi, deux cents kilos, vingt kilos, frites surgelées, raclette tranchée, raclette en meule, "
@@ -296,7 +298,7 @@ async def publish(event: dict[str, Any]) -> None:
 
 def _format_dialogue(transcripts: list[dict[str, Any]]) -> str:
     lines: list[str] = []
-    for t in sorted(transcripts, key=lambda item: int(item.get("seq", 0))):
+    for t in sorted(transcripts, key=lambda item: (str(item.get("ts") or ""), int(item.get("seq", 0)))):
         txt = str(t.get("text", "")).strip()
         if not txt:
             continue
@@ -385,16 +387,18 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
         )
         session_block = await build_session_block(caller) if client_id else ""
         existing_cmds = ", ".join(f"{c.get('id')} ({c.get('number') or c.get('id')})" for c in (rec.get("linkedCommands") or []))
+        lex_block = "\n".join(rec.get("_lexNotes") or [])
         prompt = (
             f"Appel téléphonique WhatsApp en cours avec {client_name}"
             + (f" ({client_id})" if client_id else f" (numéro {rec.get('phoneNumber', '?')}, client non encore associé)")
             + ".\n"
             + (f"Commandes déjà créées dans cet appel : {existing_cmds} — si le client ajoute ou modifie un article pour la même livraison, utilise `add_order_line(order_id='<id ord_...>')` avec l'identifiant technique `ord_...` ci-dessus au lieu de créer une nouvelle commande.\n" if existing_cmds else "")
             + "Voici la transcription en direct :\n"
-            + f"{dialogue}\n\n"
-            + "Consignes STRICTES pour le copilote en direct :\n"
+            + f"{dialogue}\n"
+            + (f"\n{lex_block}\n" if lex_block else "")
+            + "\nConsignes STRICTES pour le copilote en direct :\n"
             + "1. RÈGLE D'ABSTENTION (ZÉRO INVENTIONS) : n'appelle JAMAIS `create_draft_order` ni `add_order_line` tant que le client n'a pas nommé EXPLICITEMENT au moins un produit précis ET sa quantité (ou dit explicitement « comme d'habitude »). Si le client reste vague (« du fromage ou de la crème », simple salutation), ne touche PAS à l'ERP : consulte le stock/tarif (`search`, `get_product_stock`) et donne au gestionnaire la question de clarification exacte à poser.\n"
-            + "2. Dès qu'un produit + quantité est clair, crée ou complète la pré-commande brouillon (`create_draft_order` / `add_order_line`). Ne confirme (`confirm_order`) que sur accord explicite dans le dialogue.\n"
+            + "2. VITESSE MAXIMALE (UN SEUL TOUR D'OUTIL) : dès qu'au moins un produit + quantité est clair, utilise directement les identifiants `prd_...` et `cli_...` de la fiche client préchargée ou du bloc `[Lexique]` (sans appeler `search` ni `get_price` avant) et passe TOUTES les lignes demandées en UN SEUL appel `create_draft_order(clientId=..., deliveryDate=..., lines=[...])` : l'ERP calcule lui-même les prix négociés et renvoie `warnings` (`season_closed`, `unusual_quantity`). Ne confirme (`confirm_order`) que sur accord explicite dans le dialogue.\n"
             + "3. Réponds en 1 à 2 phrases ultra-courtes pour le commercial à l'écran : état du brouillon ou clarification attendue, prix négocié, et TOUTES les alertes `warnings` (`season_closed`, `unusual_quantity`, client bloqué)."
         )
 
@@ -419,6 +423,7 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
                     reply += ev.delta
                 elif isinstance(ev, ToolResultEvent) and ev.ok and isinstance(ev.result, dict):
                     r = ev.result
+                    changed = False
                     if ev.name in ("create_draft_order", "add_order_line", "confirm_order", "get_order") and r.get("id"):
                         cid = str(r["id"])
                         cmd_obj = {
@@ -434,12 +439,28 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
                         else:
                             seen_ids.add(cid)
                             new_cmds.append(cmd_obj)
+                        changed = True
                     for w in r.get("warnings") or []:
                         if isinstance(w, dict) and w.get("message"):
                             key = (str(w.get("code", "warning")), str(w["message"]))
                             if key not in seen_warns:
                                 seen_warns.add(key)
                                 new_warnings.append({"code": key[0], "message": key[1]})
+                                changed = True
+                    if changed:
+                        rec["linkedCommands"] = list(new_cmds)
+                        rec["warnings"] = list(new_warnings)
+                        rec["committed"] = True
+                        _save_call(rec)
+                        await publish(
+                            {
+                                "type": "call.copilot",
+                                "callId": call_id,
+                                "copilotNote": rec.get("copilotNote") or "Mise à jour ERP en direct…",
+                                "linkedCommands": new_cmds,
+                                "warnings": new_warnings,
+                            }
+                        )
                 elif isinstance(ev, ErrorEvent):
                     agent_error = ev.message
                 elif isinstance(ev, DoneEvent) and not reply and ev.message.content:
@@ -470,6 +491,54 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
         return rec
 
 
+async def _auto_bind_and_annotate(rec: dict[str, Any], text: str) -> str:
+    """Resolve client/product mentions in `text`; if the call has no clientId yet and a client is clearly named, auto-bind it."""
+    try:
+        mentions, usual, _ = await analyse(text, rec.get("clientId") or None, wait=0.25)
+        if not rec.get("clientId"):
+            for m in mentions:
+                if m.status in ("exact", "resolved") and m.candidates:
+                    top = m.candidates[0].entry
+                    if top.etype == "client" and top.eid:
+                        cid, cname = str(top.eid), str(top.label)
+                        rec["clientId"] = cid
+                        rec["clientName"] = cname
+                        rec["knownClient"] = True
+                        phone = _digits(rec.get("phoneNumber", ""))
+                        if phone:
+                            try:
+                                with _conn() as con:
+                                    con.execute(
+                                        """
+                                        INSERT INTO phone_client_map (phone_digits, client_id, client_name, updated_at)
+                                        VALUES (?, ?, ?, ?)
+                                        ON CONFLICT(phone_digits) DO UPDATE SET
+                                            client_id=excluded.client_id,
+                                            client_name=excluded.client_name,
+                                            updated_at=excluded.updated_at
+                                        """,
+                                        (phone, cid, cname, time.time()),
+                                    )
+                            except Exception:
+                                pass
+                        _save_call(rec)
+                        await publish(
+                            {
+                                "type": "call.state",
+                                "callId": rec["callId"],
+                                "status": rec.get("status", "active"),
+                                "client": {"clientId": cid, "clientName": cname},
+                            }
+                        )
+                        # Re-analyse with the newly identified client so their usual products are included!
+                        mentions, usual, _ = await analyse(text, cid, wait=0.25)
+                        break
+        return format_hints(mentions, usual)
+    except Exception as exc:
+        print(f"[calls] auto_bind_and_annotate failed: {exc}", flush=True)
+        return await annotate(text, rec.get("clientId") or None)
+
+
 async def _process_utterance(
     rec: dict[str, Any],
     call_id: str,
@@ -477,6 +546,7 @@ async def _process_utterance(
     speaker: str,
     raw_wav: bytes,
     duration_ms: int,
+    started_at: str | None = None,
 ) -> None:
     try:
         stt = get_stt_client()
@@ -487,14 +557,32 @@ async def _process_utterance(
         async with _stt_sem:
             text = (await stt.transcribe(raw_wav, "audio/wav", hint)).strip()
 
-        if not text or text in _SILENCE_MARKERS:
+        if not text or text in _SILENCE_MARKERS or text.lower() in _NOISE_HALLUCINATIONS:
             if speaker == "client" and _pending_sim_texts.get(call_id):
                 text = _pending_sim_texts[call_id].pop(0)
             else:
                 return
 
         text = clean_call_transcript(text)
+        ts_iso = started_at or datetime.now(UTC).isoformat()
 
+        # 1. Publish transcript IMMEDIATELY after STT so the UI has zero delay waiting on Jev/Lexicon,
+        # sorted by true speech start timestamp `ts`.
+        entry: dict[str, Any] = {
+            "id": f"{call_id}_{seq}",
+            "seq": seq,
+            "speaker": speaker,
+            "text": text,
+            "durationMs": duration_ms,
+            "ts": ts_iso,
+        }
+        rec["transcripts"].append(entry)
+        rec["transcripts"].sort(key=lambda t: (str(t.get("ts") or ""), int(t.get("seq", 0))))
+        _save_call(rec)
+        await publish({"type": "call.transcript", "callId": call_id, "entry": dict(entry)})
+
+        # 2. Run Lexicon (auto-binding client on manager OR client speech) + Jev routing in parallel.
+        lex_task = asyncio.create_task(_auto_bind_and_annotate(rec, text))
         jev_ms: int | None = None
         jev_route: str | None = None
         if speaker == "client":
@@ -505,7 +593,7 @@ async def _process_utterance(
                     jev_router.TurnState(transcript=text, client_id=rec.get("clientId") or None, role="manager"),
                 )
             )
-            lex_notes = await annotate(text, rec.get("clientId") or None)
+            lex_notes = await lex_task
             try:
                 route = await route_task
                 jev_ms = round((time.perf_counter() - t0_jev) * 1000)
@@ -513,25 +601,27 @@ async def _process_utterance(
             except Exception:
                 pass
             if lex_notes:
+                notes_list: list[str] = rec.setdefault("_lexNotes", [])
+                if lex_notes not in notes_list:
+                    notes_list.append(lex_notes)
                 print(f"[calls] lexicon hint for {call_id}: {lex_notes}", flush=True)
+            if jev_ms is not None or jev_route:
+                if jev_ms is not None:
+                    entry["jevMs"] = jev_ms
+                if jev_route:
+                    entry["jevRoute"] = jev_route
+                _save_call(rec)
+                await publish({"type": "call.transcript", "callId": call_id, "entry": dict(entry)})
 
-        entry = {
-            "id": f"{call_id}_{seq}",
-            "seq": seq,
-            "speaker": speaker,
-            "text": text,
-            "durationMs": duration_ms,
-            "ts": datetime.now(UTC).isoformat(),
-            **({"jevMs": jev_ms} if jev_ms is not None else {}),
-            **({"jevRoute": jev_route} if jev_route else {}),
-        }
-        rec["transcripts"].append(entry)
-        rec["transcripts"].sort(key=lambda t: int(t.get("seq", 0)))
-        _save_call(rec)
-        await publish({"type": "call.transcript", "callId": call_id, "entry": entry})
-
-        if speaker == "client":
-            _schedule_copilot(call_id)
+            # Skip triggering a heavy LLM copilot run on pure trivial filler ("Yeah.", "Merci", "Au revoir")
+            if jev_route != "trivial:none":
+                _schedule_copilot(call_id)
+        else:
+            lex_notes = await lex_task
+            if lex_notes:
+                notes_list = rec.setdefault("_lexNotes", [])
+                if lex_notes not in notes_list:
+                    notes_list.append(lex_notes)
     except Exception as exc:
         err_msg = f"STT error: {exc}"
         await publish({"type": "call.error", "callId": call_id, "error": err_msg})
@@ -662,13 +752,14 @@ async def handle_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     if event == "call.utterance":
         wav_b64 = str(payload.get("wav_base64") or "")
         duration_ms = int(payload.get("duration_ms") or 0)
+        started_at = str(payload.get("started_at") or "").strip() or None
         if not wav_b64:
             return {"status": "ignored", "reason": "empty_audio"}
         raw_wav = base64.b64decode(wav_b64)
         speaker = "manager" if str(payload.get("speaker") or "client").lower() == "manager" else "client"
         seq = int(rec.get("utteranceSeq", len(rec.get("transcripts") or []))) + 1
         rec["utteranceSeq"] = seq
-        asyncio.create_task(_process_utterance(rec, call_id, seq, speaker, raw_wav, duration_ms))
+        asyncio.create_task(_process_utterance(rec, call_id, seq, speaker, raw_wav, duration_ms, started_at))
         return {"status": "queued", "seq": seq}
 
     if event == "call.error":

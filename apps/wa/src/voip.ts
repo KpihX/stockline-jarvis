@@ -234,11 +234,11 @@ export class VoipBridgeManager {
     const bridge = new WebRtcCallBridge(
       callId,
       this.cfg,
-      (wav, durationMs) => {
-        void this.emitUtterance(callId, from, wav, durationMs, 'client')
+      (wav, durationMs, startedAtIso) => {
+        void this.emitUtterance(callId, from, wav, durationMs, 'client', startedAtIso)
       },
-      (wav, durationMs) => {
-        void this.emitUtterance(callId, from, wav, durationMs, 'manager')
+      (wav, durationMs, startedAtIso) => {
+        void this.emitUtterance(callId, from, wav, durationMs, 'manager', startedAtIso)
       }
     )
 
@@ -300,11 +300,11 @@ export class VoipBridgeManager {
     const bridge = new WebRtcCallBridge(
       callId,
       this.cfg,
-      (wav, durationMs) => {
-        void this.emitUtterance(callId, from, wav, durationMs, 'client')
+      (wav, durationMs, startedAtIso) => {
+        void this.emitUtterance(callId, from, wav, durationMs, 'client', startedAtIso)
       },
-      (wav, durationMs) => {
-        void this.emitUtterance(callId, from, wav, durationMs, 'manager')
+      (wav, durationMs, startedAtIso) => {
+        void this.emitUtterance(callId, from, wav, durationMs, 'manager', startedAtIso)
       }
     )
 
@@ -457,7 +457,8 @@ export class VoipBridgeManager {
     from: string,
     wav: Buffer,
     durationMs: number,
-    speaker: 'client' | 'manager' = 'client'
+    speaker: 'client' | 'manager' = 'client',
+    startedAtIso?: string
   ): Promise<void> {
     await this.postCallWebhook({
       event: 'call.utterance',
@@ -465,6 +466,7 @@ export class VoipBridgeManager {
       from,
       speaker,
       duration_ms: durationMs,
+      started_at: startedAtIso || new Date(Date.now() - durationMs).toISOString(),
       wav_base64: wav.toString('base64'),
     })
   }

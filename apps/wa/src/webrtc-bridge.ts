@@ -31,7 +31,7 @@ export interface BridgeConfig {
   iceServers: string[]
 }
 
-export type UtteranceHandler = (wavBuffer: Buffer, durationMs: number) => void
+export type UtteranceHandler = (wavBuffer: Buffer, durationMs: number, startedAtIso: string) => void
 
 export function encodeWav16kMono(samples: Int16Array, sampleRate = 16000): Buffer {
   const dataBytes = samples.length * 2
@@ -116,9 +116,12 @@ export function decodeWav16kMono(wav: Buffer): Float32Array {
 class VadUtteranceSegmenter {
   private readonly sampleRate: number
   private readonly rmsThreshold: number
+  private readonly silenceMs: number
   private readonly silenceSamplesTarget: number
+  private readonly softSplitSamples: number
+  private readonly softSilenceSamples: number
   private readonly maxUtteranceSamples: number
-  private readonly preRollMaxChunks = 10
+  private readonly preRollMaxChunks = 8
   private readonly preRoll: Int16Array[] = []
   private readonly onUtterance: UtteranceHandler
 
@@ -126,6 +129,11 @@ class VadUtteranceSegmenter {
   private activeSamples = 0
   private silenceSamples = 0
   private speaking = false
+  private utteranceStartedAtMs = 0
+  private lastPushAtMs = 0
+  private lastVoiceAtMs = 0
+  private utterancePeakRms = 0
+  private consecutiveVoiceFrames = 0
 
   constructor(
     sampleRate: number,
@@ -136,13 +144,34 @@ class VadUtteranceSegmenter {
   ) {
     this.sampleRate = sampleRate
     this.rmsThreshold = rmsThreshold
-    this.silenceSamplesTarget = Math.max(sampleRate * 0.4, Math.round((sampleRate * silenceMs) / 1000))
+    this.silenceMs = Math.max(380, silenceMs)
+    this.silenceSamplesTarget = Math.max(Math.round(sampleRate * 0.38), Math.round((sampleRate * this.silenceMs) / 1000))
+    this.softSplitSamples = Math.round(sampleRate * 4.2) // after 4.2s of speech, split on any 280ms breath pause
+    this.softSilenceSamples = Math.round(sampleRate * 0.28)
     this.maxUtteranceSamples = Math.max(sampleRate * 2, Math.round((sampleRate * maxUtteranceMs) / 1000))
     this.onUtterance = onUtterance
   }
 
+  /** Flush buffered speech if WhatsApp DTX stopped delivering audio packets or voice paused for >= silenceMs. */
+  checkIdle(nowMs = Date.now()): void {
+    if (!this.speaking) return
+    const gapSincePush = this.lastPushAtMs > 0 ? nowMs - this.lastPushAtMs : 0
+    const gapSinceVoice = this.lastVoiceAtMs > 0 ? nowMs - this.lastVoiceAtMs : 0
+    if (gapSincePush >= this.silenceMs || gapSinceVoice >= this.silenceMs + 120) {
+      this.emitBuffered()
+    }
+  }
+
   push(pcm16k: Float32Array): void {
     if (pcm16k.length === 0) return
+    const nowMs = Date.now()
+
+    // If a wall-clock DTX gap occurred while speaking, close the previous utterance BEFORE buffering new audio.
+    if (this.speaking && this.lastPushAtMs > 0 && nowMs - this.lastPushAtMs >= this.silenceMs) {
+      this.emitBuffered()
+    }
+    this.lastPushAtMs = nowMs
+
     let energy = 0
     const int16 = new Int16Array(pcm16k.length)
     for (let i = 0; i < pcm16k.length; i++) {
@@ -160,6 +189,10 @@ class VadUtteranceSegmenter {
       if (rms >= this.rmsThreshold) {
         this.speaking = true
         this.silenceSamples = 0
+        this.utterancePeakRms = rms
+        this.consecutiveVoiceFrames = 1
+        this.lastVoiceAtMs = nowMs
+        this.utteranceStartedAtMs = nowMs - this.preRoll.length * 20
         this.activeChunks = [...this.preRoll]
         this.activeSamples = this.activeChunks.reduce((acc, item) => acc + item.length, 0)
         this.preRoll.length = 0
@@ -169,13 +202,29 @@ class VadUtteranceSegmenter {
 
     this.activeChunks.push(int16)
     this.activeSamples += int16.length
-    if (rms >= this.rmsThreshold) {
-      this.silenceSamples = 0
+    if (rms > this.utterancePeakRms) {
+      this.utterancePeakRms = rms
+    }
+
+    // Dynamic threshold: once speech peak is loud (e.g. 0.12), ambient background noise (0.015) counts as silence.
+    const dynamicThreshold = Math.max(this.rmsThreshold, Math.min(0.042, this.utterancePeakRms * 0.25))
+    if (rms >= dynamicThreshold) {
+      this.consecutiveVoiceFrames += 1
+      this.lastVoiceAtMs = nowMs
+      // Require 2 consecutive active frames to wipe accumulated silence (ignores a single 20ms click/breath).
+      if (this.silenceSamples < Math.round(this.sampleRate * 0.16) || this.consecutiveVoiceFrames >= 2) {
+        this.silenceSamples = 0
+      }
     } else {
+      this.consecutiveVoiceFrames = 0
       this.silenceSamples += int16.length
     }
 
-    if (this.silenceSamples >= this.silenceSamplesTarget || this.activeSamples >= this.maxUtteranceSamples) {
+    const hitFullSilence = this.silenceSamples >= this.silenceSamplesTarget
+    const hitSoftBreathSplit = this.activeSamples >= this.softSplitSamples && this.silenceSamples >= this.softSilenceSamples
+    const hitMaxDuration = this.activeSamples >= this.maxUtteranceSamples
+
+    if (hitFullSilence || hitSoftBreathSplit || hitMaxDuration) {
       this.emitBuffered()
     }
   }
@@ -196,9 +245,12 @@ class VadUtteranceSegmenter {
       offset += chunk.length
     }
     const durationMs = Math.round((this.activeSamples / this.sampleRate) * 1000)
+    const peak = this.utterancePeakRms
+    const startedIso = new Date(this.utteranceStartedAtMs || Date.now() - durationMs).toISOString()
     this.reset()
-    if (durationMs >= 350) {
-      this.onUtterance(encodeWav16kMono(merged, this.sampleRate), durationMs)
+    // Filter out very short clicks (< 380ms) or near-threshold ambient hum
+    if (durationMs >= 380 && peak >= this.rmsThreshold * 1.15) {
+      this.onUtterance(encodeWav16kMono(merged, this.sampleRate), durationMs, startedIso)
     }
   }
 
@@ -207,6 +259,9 @@ class VadUtteranceSegmenter {
     this.activeChunks = []
     this.activeSamples = 0
     this.silenceSamples = 0
+    this.utteranceStartedAtMs = 0
+    this.utterancePeakRms = 0
+    this.consecutiveVoiceFrames = 0
   }
 }
 
@@ -231,6 +286,7 @@ export class WebRtcCallBridge {
   private pending48kDown: number[] = []
   private muted = false
   private closed = false
+  private vadWatchTimer: NodeJS.Timeout | null = null
 
   stats = {
     inboundChunks16k: 0,
@@ -267,6 +323,12 @@ export class WebRtcCallBridge {
           onManagerUtterance
         )
       : null
+    this.vadWatchTimer = setInterval(() => {
+      if (this.closed) return
+      const now = Date.now()
+      this.vad.checkIdle(now)
+      this.managerVad?.checkIdle(now)
+    }, 90)
   }
 
   setMuted(muted: boolean): void {
@@ -431,6 +493,10 @@ export class WebRtcCallBridge {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    if (this.vadWatchTimer) {
+      clearInterval(this.vadWatchTimer)
+      this.vadWatchTimer = null
+    }
     this.vad.flush()
     this.managerVad?.flush()
     await this.closePeerOnly()

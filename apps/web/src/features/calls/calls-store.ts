@@ -145,12 +145,15 @@ function handleSsePayload(ev: Record<string, unknown>) {
   if (type === "call.transcript" && ev.entry) {
     const cid = String(ev.callId || "");
     const entry = ev.entry as CallTranscriptEntry;
-    const appendEntry = (c: CallSession): CallSession => ({
-      ...c,
-      transcripts: c.transcripts.some((t) => t.id === entry.id) ? c.transcripts : [...c.transcripts, entry],
-    });
-    if (state.activeCall?.callId === cid) set({ activeCall: appendEntry(state.activeCall) });
-    set({ recentCalls: state.recentCalls.map((c) => (c.callId === cid ? appendEntry(c) : c)) });
+    const upsertEntry = (c: CallSession): CallSession => {
+      const existing = c.transcripts.some((t) => t.id === entry.id)
+        ? c.transcripts.map((t) => (t.id === entry.id ? { ...t, ...entry } : t))
+        : [...c.transcripts, entry];
+      existing.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")) || a.seq - b.seq);
+      return { ...c, transcripts: existing };
+    };
+    if (state.activeCall?.callId === cid) set({ activeCall: upsertEntry(state.activeCall) });
+    set({ recentCalls: state.recentCalls.map((c) => (c.callId === cid ? upsertEntry(c) : c)) });
     return;
   }
   if (type === "call.copilot") {
