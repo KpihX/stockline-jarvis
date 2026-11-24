@@ -1,4 +1,4 @@
-# Presentation — Alpes Restauration x Stockline (team-01)
+# Presentation — Alpes Restauration x Stockline (J.A.R.V.I.S)
 
 Deck as code (`k-presentation` doctrine).
 - Markdown in `slides/*.md` owns every word and timed speaker notes (5 min max).

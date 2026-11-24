@@ -1,5 +1,7 @@
-# DECISIONS.md — team-01 (Alpes Restauration)
+# DECISIONS.md — J.A.R.V.I.S (Alpes Restauration)
 
+> **J.A.R.V.I.S — *Juste un Agent Rapide pour la Voix et l'Inventaire Stockline***
+>
 > **Thèse directrice — La Proactivité comme architecture :** un agent vocal utile dans un ERP ne subit pas l'appel comme un chatbot passif ; il **précharge** l'identité et les habitudes avant la première phrase, **anticipe** la latence par filler précoce et routage rapide (Jev), **alerte** sur les pièges métier (saison fermée, quantité anormale, rupture, impayé) par règles backend déterministes, **apprend** le vocabulaire client uniquement sur preuve confirmée, et **unifie** le tableau de bord, l'Assistant et la Voix sur une mémoire persistante.
 
 Living document. Numbers in §4, §5.4, §6.4, §7–§9 are **measured** (`scripts/bench/`, `scripts/bench/results.md`, live Docker stack captures); everything else is a decision or a hypothesis and is labelled as such. Last update: 2026-11-24.

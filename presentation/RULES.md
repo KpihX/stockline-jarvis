@@ -1,4 +1,4 @@
-# Rules that bind — Hackathon X-Forum x Stockline (team-01)
+# Rules that bind — Hackathon X-Forum x Stockline (J.A.R.V.I.S)
 
 Quoted from `../BRIEF.md` (§3 & §8) and `../refs/2211_-_Amphi_de_lancement_Hackathon_X-Forum.pdf`:
 

@@ -1,4 +1,4 @@
-"""Assemble presentation/build/Stockline-Team01-Alpes-Restauration.pptx from slides/*.md and build/figs/*.png."""
+"""Assemble presentation/build/Stockline-JARVIS-Alpes-Restauration.pptx from slides/*.md and build/figs/*.png."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import theme  # noqa: E402
 
 ROOT = HERE.parent
 FIGS = ROOT / "build" / "figs"
-TARGET = ROOT / "build" / "Stockline-Team01-Alpes-Restauration.pptx"
+TARGET = ROOT / "build" / "Stockline-JARVIS-Alpes-Restauration.pptx"
 
 
 def _chrome_slide(prs, slide: slidesmod.Slide, *, show_footer: bool = True):
@@ -48,7 +48,7 @@ def fill_title(prs, slide: slidesmod.Slide):
     pillar.line.fill.background()
     pillar.shadow.inherit = False
 
-    kicker = slide.meta.get("kicker", "HACKATHON X-FORUM x STOCKLINE  ·  TEAM 01")
+    kicker = slide.meta.get("kicker", "HACKATHON X-FORUM x STOCKLINE  ·  J.A.R.V.I.S")
     kit.textbox(page, kit.Box(0.95, 1.55, 11.5, 0.35), kicker,
                 kit.TextStyle(size=12, colour=theme.EMERALD, bold=True, font=theme.BODY_FONT))
     kit.textbox(page, kit.Box(0.95, 2.02, 11.6, 1.45), slide.head, theme.TITLE_COVER, anchor=MSO_ANCHOR.TOP)
@@ -188,10 +188,10 @@ SPECS = {
 
 def build() -> pathlib.Path:
     prs, _ = kit.open_deck(size_in=(theme.SLIDE_W, theme.SLIDE_H))
-    prs.core_properties.title = "Alpes Restauration — Agent vocal ERP"
-    prs.core_properties.subject = "Hackathon X-Forum x Stockline (Team 01)"
-    prs.core_properties.author = "Team 01 (KpihX)"
-    prs.core_properties.last_modified_by = "Team 01"
+    prs.core_properties.title = "J.A.R.V.I.S — Alpes Restauration — Agent vocal ERP"
+    prs.core_properties.subject = "Hackathon X-Forum x Stockline (J.A.R.V.I.S)"
+    prs.core_properties.author = "J.A.R.V.I.S (KpihX)"
+    prs.core_properties.last_modified_by = "J.A.R.V.I.S"
 
     all_slides = slidesmod.load()
     for s in all_slides:

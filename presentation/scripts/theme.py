@@ -99,6 +99,6 @@ CAPTION_BOX = Box(MARGIN_X, 6.42, CONTENT_W, 0.35)
 FOOTER_LEFT = Box(MARGIN_X, 6.96, 8.5, 0.30)
 FOOTER_RIGHT = Box(SLIDE_W - MARGIN_X - 1.5, 6.96, 1.5, 0.30)
 
-FOOTER_TEXT = "Hackathon X-Forum x Stockline  |  Team 01  |  Alpes Restauration"
+FOOTER_TEXT = "Hackathon X-Forum x Stockline  |  J.A.R.V.I.S  |  Alpes Restauration"
 TALK_MINUTES = 5
 WORDS_PER_MINUTE = 140

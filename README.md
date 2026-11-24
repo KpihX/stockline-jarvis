@@ -1,14 +1,15 @@
-# Stockline × X-Forum — Team 01 (Alpes Restauration)
+# Stockline × X-Forum — J.A.R.V.I.S (Alpes Restauration)
 
+> **J.A.R.V.I.S — *Juste un Agent Rapide pour la Voix et l'Inventaire Stockline***  
 > **La Proactivité comme Architecture** — Agent vocal temps réel, copilote ERP multi-rôles, décisions rapides TypeSafe Jev System One (`126–194 ms`), lexique phonétique auto-apprenant (`62/62`, `2,2 ms`) et garde-fous métier déterministes (`season_closed`, `unusual_quantity`).
 
-## Livrables officiels du Hackathon (Team 01)
+## Livrables officiels du Hackathon (J.A.R.V.I.S)
 
 | Livrable | Emplacement dans le dépôt | Contenu & Chiffres clés |
 |---|---|---|
 | **1. `DECISIONS.md`** | **[`DECISIONS.md`](DECISIONS.md)** | Thèse (*La Proactivité comme Architecture*), cas d'usage (prise de commande matinale 5 h – 9 h), choix techniques, limites honnêtes et mesures (1er son **1,23 s**, STT cadencé **225 ms**, Jev **126–194 ms**, lexique **62/62** à 0 FP). |
-| **2. Vidéo de démo (≤ 2 min)** | **[`demo/stockline-team01-demo.mp4`](demo/stockline-team01-demo.mp4)** | Parcours réel commenté de bout en bout (**1 min 33 s**, 1600×900, H.264/AAC) : connexion 1-clic → Dashboard Client IA → commande vocale piège (`season_closed` + puce `Jev 158 ms`) → continuité Assistant → vue Fournisseur → gouvernance Admin unique (`HTTP 409`). |
-| **3. Slides (≤ 5 min)** | **[`presentation/build/Stockline-Team01-Alpes-Restauration.pdf`](presentation/build/Stockline-Team01-Alpes-Restauration.pdf)** · **[`.pptx`](presentation/build/Stockline-Team01-Alpes-Restauration.pptx)** | **9 slides** (budget oral **4,5 min** à 140 mpm, code source reproductible dans [`presentation/`](presentation/) via `make -C presentation build`). |
+| **2. Vidéo de démo (≤ 2 min)** | **[`demo/stockline-jarvis-demo.mp4`](demo/stockline-jarvis-demo.mp4)** | Parcours réel commenté de bout en bout (**1 min 33 s**, 1600×900, H.264/AAC) : connexion 1-clic → Dashboard Client IA → commande vocale piège (`season_closed` + puce `Jev 158 ms`) → continuité Assistant → vue Fournisseur → gouvernance Admin unique (`HTTP 409`). |
+| **3. Slides (≤ 5 min)** | **[`presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pdf)** · **[`.pptx`](presentation/build/Stockline-JARVIS-Alpes-Restauration.pptx)** | **9 slides** (budget oral **4,5 min** à 140 mpm, code source reproductible dans [`presentation/`](presentation/) via `make -C presentation build`). |
 | **4. Code & Données (`./data/seed`)** | Racine du dépôt (`apps/`, `packages/`, `data/seed/`) | Graine complète d'**Alpes Restauration** (`data/seed/*.json` + `data/context/*.md`) incluse pour que **`make setup` fonctionne immédiatement après `git clone`**. |
 
 ### Démarrage rapide Jury (1 commande)
@@ -71,8 +72,8 @@ README covers the architecture, the configuration and how to extend the kit.
 Everything runs offline out of the box: with the `mock` providers the LLM, speech-to-text and text-to-speech are
 deterministic fakes that still call the real ERP. Add your keys when you are ready.
 
-> **Team 01 (Alpes Restauration — Proactive Voice & ERP Copilot):** `data/seed` is bundled so `make setup` runs cleanly from a fresh clone.
-> Key additions on `stockline-team01`:
+> **J.A.R.V.I.S (Juste un Agent Rapide pour la Voix et l'Inventaire Stockline — Alpes Restauration) :** `data/seed` is bundled so `make setup` runs cleanly from a fresh clone.
+> Key additions on `stockline-jarvis`:
 > - **5-role authentication & strict single-admin** (`/login` with 1-click demo profiles: `admin`, `thibault`, `emilie`, `payet`, `leila`, `igloo`, `chambaran`, `perrier`; `/accounts` CRUD with `HTTP 409` on a 2nd admin).
 > - **AI-helped personalised Dashboard** (`GET /ai/suggestions`): live briefing + rotating clickable action cards routing directly to **Voix** or **Assistant**.
 > - **Unified Assistant ↔ Voix sessions** (`apps/ai/app/services/sessions.py` + `sessions.db`): list, search, rename, delete, resume, and continue a voice turn inside text Assistant (and vice-versa).

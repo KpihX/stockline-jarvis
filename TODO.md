@@ -1,4 +1,4 @@
-# TODO — team-01 (Alpes Restauration) voice agent
+# TODO — J.A.R.V.I.S (Alpes Restauration) voice agent
 
 Use case (validated 2026-11-23): **inbound order taking for CHR customers**, voice → ERP, for the morning salesperson (5h-9h).
 Judging: Smart / Fast / Natural + use-case relevance. Submission **Tue 2026-11-24 17:30 (no exceptions)**, closing demo 18:00.
@@ -18,7 +18,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Hybrid STT: lexicon biasing -> deterministic phonetic/fuzzy resolver -> Jev picks among close candidates -> LLM receives raw text + resolved candidates
 - [x] Lexicon: global (catalogue, aliases, CHR jargon) + per client (order history, client sheet); grows only from CONFIRMED orders; promote a pair seen across several clients
 - [ ] NVIDIA bricks must stay optional in the jury repo (kit keys = Anthropic, Soniox, ElevenLabs, Jev); fallback = Soniox
-- Note: "Les Marseillais" is not a team-01 client (94 clients checked): the 2 recordings test unknown-name robustness.
+- Note: "Les Marseillais" is not an Alpes Restauration client (94 clients checked): the 2 recordings test unknown-name robustness.
 - Vocabulary (2026-11-24, details DECISIONS.md §5): `apps/ai/app/lexicon/` — phonetic resolver (candidates + score + margin, never rewrites), global + per-client lexicon (client sheet: contacts, places, usual basket), learned entries stored in the ERP context table (tag `vocab`), `learn_term` only after spelled / confirmed (yes) / order proof checked against the real conversation, promotion at 3 distinct clients (`lexicon/config.py`), decay, `forget_term` + `GET/DELETE /vocab`; STT terms client-first once the caller is known; Jev settles ambiguities (optional).
   - [x] Offline eval `scripts/bench/vocab_eval.py` on stored transcripts: entity recall soniox-plain 54→61/62, soniox-vocab 60→62/62, whisper-v3 52→62/62, parakeet 38→60/62; 0 wrong proposals on 80 transcripts + 12 negative sentences; resolver median 2.2 ms (host)
   - [ ] Re-run `tmp/stt-lab/run_soniox.py` with the new STT hint (client-first terms + jargon) to measure the real STT effect (quota)
@@ -73,14 +73,14 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## Delivery
 - [x] `data/` seed bundled and `README.md` updated for `make setup` from a fresh clone
-- [x] Branch `stockline-team01` pushed to GitLab and GitHub, plus dedicated repo `KpihX/stockline-team01`
+- [x] Dedicated repo `KpihX/stockline-jarvis` created and synced on `main`
 - [x] `DECISIONS.md` finalized with proactivity thesis, architecture, and measured tables
-- [x] Slides (`presentation/`, <= 5 min) + Demo video (`demo/stockline-team01-demo.mp4`, <= 2 min)
+- [x] Slides (`presentation/`, <= 5 min) + Demo video (`demo/stockline-jarvis-demo.mp4`, <= 2 min)
 - [x] Live rehearsal & `make reset` before submission (Tue 17:30)
 
 ## Open questions
 - NVIDIA/Nemotron: only usable with KpihX's own NVIDIA key (kit keys = Anthropic, Soniox, ElevenLabs, Jev).
-- Dedicated private repo `KpihX/stockline-team01` created and synced alongside `stockline-team01` branch.
+- Dedicated private repo `KpihX/stockline-jarvis` created and synced on `main`.
 
 ## Session memory + latency (2026-11-23, details DECISIONS.md §6)
 - [x] Session memory: SQLite under `$AI_STATE_DIR` (Docker volume `ai-state`), write-through per turn, restore on reconnect, TTL 12 h, cap 200, `reset` deletes, falls back to memory if the dir is missing/unwritable/corrupted; survives an uvicorn hot reload (checked live)
