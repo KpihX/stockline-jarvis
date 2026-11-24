@@ -442,6 +442,71 @@ async def _run_call_copilot(call_id: str) -> dict[str, Any] | None:
         return rec
 
 
+async def _process_utterance(
+    rec: dict[str, Any],
+    call_id: str,
+    seq: int,
+    speaker: str,
+    raw_wav: bytes,
+    duration_ms: int,
+) -> None:
+    try:
+        stt = get_stt_client()
+        hint = await stt_hint(stt.name, None, rec.get("clientId") or None)
+        if stt.name == "mock" and speaker == "client" and _pending_sim_texts.get(call_id):
+            hint = _pending_sim_texts[call_id].pop(0)
+
+        async with _stt_sem:
+            text = (await stt.transcribe(raw_wav, "audio/wav", hint)).strip()
+
+        if not text or text in _SILENCE_MARKERS:
+            if speaker == "client" and _pending_sim_texts.get(call_id):
+                text = _pending_sim_texts[call_id].pop(0)
+            else:
+                return
+
+        jev_ms: int | None = None
+        jev_route: str | None = None
+        if speaker == "client":
+            t0_jev = time.perf_counter()
+            route_task = asyncio.create_task(
+                jev_router.route_turn(
+                    text,
+                    jev_router.TurnState(transcript=text, client_id=rec.get("clientId") or None, role="manager"),
+                )
+            )
+            lex_notes = await annotate(text, rec.get("clientId") or None)
+            try:
+                route = await route_task
+                jev_ms = round((time.perf_counter() - t0_jev) * 1000)
+                jev_route = f"{route.intent}:{route.tools_needed}" if route.decided_by == "jev" else route.intent
+            except Exception:
+                pass
+            if lex_notes:
+                print(f"[calls] lexicon hint for {call_id}: {lex_notes}", flush=True)
+
+        entry = {
+            "id": f"{call_id}_{seq}",
+            "seq": seq,
+            "speaker": speaker,
+            "text": text,
+            "durationMs": duration_ms,
+            "ts": datetime.now(UTC).isoformat(),
+            **({"jevMs": jev_ms} if jev_ms is not None else {}),
+            **({"jevRoute": jev_route} if jev_route else {}),
+        }
+        rec["transcripts"].append(entry)
+        rec["transcripts"].sort(key=lambda t: int(t.get("seq", 0)))
+        _save_call(rec)
+        await publish({"type": "call.transcript", "callId": call_id, "entry": entry})
+
+        if speaker == "client":
+            asyncio.create_task(_safe_copilot(call_id))
+    except Exception as exc:
+        err_msg = f"STT error: {exc}"
+        await publish({"type": "call.error", "callId": call_id, "error": err_msg})
+
+
 async def _safe_copilot(call_id: str) -> None:
     try:
         await _run_call_copilot(call_id)
@@ -554,67 +619,8 @@ async def handle_webhook(payload: dict[str, Any]) -> dict[str, Any]:
         speaker = "manager" if str(payload.get("speaker") or "client").lower() == "manager" else "client"
         seq = int(rec.get("utteranceSeq", len(rec.get("transcripts") or []))) + 1
         rec["utteranceSeq"] = seq
-
-        stt = get_stt_client()
-        hint = await stt_hint(stt.name, None, rec.get("clientId") or None)
-        if stt.name == "mock" and speaker == "client" and _pending_sim_texts.get(call_id):
-            hint = _pending_sim_texts[call_id].pop(0)
-
-        text = ""
-        try:
-            async with _stt_sem:
-                text = (await stt.transcribe(raw_wav, "audio/wav", hint)).strip()
-        except Exception as exc:
-            err_msg = f"STT error: {exc}"
-            await publish({"type": "call.error", "callId": call_id, "error": err_msg})
-            return {"status": "error", "error": err_msg}
-
-        if not text or text in _SILENCE_MARKERS:
-            if speaker == "client" and _pending_sim_texts.get(call_id):
-                # Fallback if ElevenLabs audio wasn't decoded cleanly
-                text = _pending_sim_texts[call_id].pop(0)
-            else:
-                return {"status": "silence", "text": ""}
-
-        # Run Jev route_turn + phonetic lexicon resolution in parallel for live observability
-        jev_ms: int | None = None
-        jev_route: str | None = None
-        if speaker == "client":
-            t0_jev = time.perf_counter()
-            route_task = asyncio.create_task(
-                jev_router.route_turn(
-                    text,
-                    jev_router.TurnState(transcript=text, client_id=rec.get("clientId") or None, role="manager"),
-                )
-            )
-            lex_notes = await annotate(text, rec.get("clientId") or None)
-            try:
-                route = await route_task
-                jev_ms = round((time.perf_counter() - t0_jev) * 1000)
-                jev_route = f"{route.intent}:{route.tools_needed}" if route.decided_by == "jev" else route.intent
-            except Exception:
-                pass
-            if lex_notes:
-                print(f"[calls] lexicon hint for {call_id}: {lex_notes}", flush=True)
-
-        entry = {
-            "id": f"{call_id}_{seq}",
-            "seq": seq,
-            "speaker": speaker,
-            "text": text,
-            "durationMs": duration_ms,
-            "ts": datetime.now(UTC).isoformat(),
-            **({"jevMs": jev_ms} if jev_ms is not None else {}),
-            **({"jevRoute": jev_route} if jev_route else {}),
-        }
-        rec["transcripts"].append(entry)
-        _save_call(rec)
-        await publish({"type": "call.transcript", "callId": call_id, "entry": entry})
-
-        if speaker == "client":
-            asyncio.create_task(_safe_copilot(call_id))
-
-        return {"status": "ok", "text": text}
+        asyncio.create_task(_process_utterance(rec, call_id, seq, speaker, raw_wav, duration_ms))
+        return {"status": "queued", "seq": seq}
 
     if event == "call.error":
         err = str(payload.get("error") or payload.get("message") or "Call error")
