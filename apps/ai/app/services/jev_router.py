@@ -137,9 +137,13 @@ async def _ask(jev, state: Any, questions: dict, kind: str) -> dict | None:
     try:
         res = await asyncio.wait_for(jev.ask(state, questions), JEV_TIMEOUT_S)
     except Exception:  # no network, bad key, malformed answer, timeout → caller falls back
-        _record(kind, (time.perf_counter() - t0) * 1000, failed=True)
+        ms = (time.perf_counter() - t0) * 1000
+        _record(kind, ms, failed=True)
+        print(f"[jev] {kind} failed in {round(ms)}ms", flush=True)
         return None
-    _record(kind, (time.perf_counter() - t0) * 1000)  # never in `else`: a `return` in try would skip it
+    ms = (time.perf_counter() - t0) * 1000
+    _record(kind, ms)  # never in `else`: a `return` in try would skip it
+    print(f"[jev] {kind} ok in {round(ms)}ms", flush=True)
     return res
 
 
@@ -527,7 +531,9 @@ async def clarify_hints(heard: str, client_id: str | None, caller, *, spoken: bo
             else:
                 resolved.append(Mention(m.surface, m.start, m.end, "ambiguous", m.candidates, m.margin, m.decided_by))
         hints = format_hints(resolved, usual)
-        return f"{HINT_MARK}{hints}" if hints else ""
+        if not hints:
+            return ""
+        return f"\n\n{hints}" if hints.startswith("[Lexique") else f"{HINT_MARK}{hints}"
     except Exception as e:
         print(f"[jev] clarification ignorée ({type(e).__name__}: {e})", flush=True)
         return ""
@@ -547,12 +553,36 @@ async def on_final_transcript(conv, heard: str, *, spoken: bool = False) -> str:
         role=caller.role,
         last_assistant_text=_last_assistant_text(getattr(conv, "history", None)),
     )
+    t0 = time.perf_counter()
     route_task = asyncio.create_task(route_turn(heard, state))
+    try:
+        conv._last_jev_turn = (t0, route_task)
+    except Exception:
+        pass
     task = asyncio.create_task(preload_when_ready(route_task, state, caller))
     _tasks.append(task)
     if len(_tasks) > 64:
         _tasks[:] = [t for t in _tasks if not t.done()]
     return await clarify_hints(heard, state.client_id, caller, spoken=spoken)
+
+
+async def collect_turn_jev(conv) -> tuple[int | None, str | None]:
+    """Harvest the measured Jev latency and classified route for the turn that just completed."""
+    info = getattr(conv, "_last_jev_turn", None)
+    if not info:
+        return None, None
+    _, route_task = info
+    try:
+        if not route_task.done():
+            await asyncio.wait_for(asyncio.shield(route_task), 0.15)
+        route: TurnRoute = route_task.result()
+        xs = _samples.get("route_turn") or []
+        ms = int(round(xs[-1])) if xs else None
+        label = f"{route.intent}:{route.tools_needed}" if route.decided_by == "jev" else route.intent
+        return ms, label
+    except Exception:
+        xs = _samples.get("route_turn") or []
+        return (int(round(xs[-1])) if xs else None), None
 
 
 __all__ = [

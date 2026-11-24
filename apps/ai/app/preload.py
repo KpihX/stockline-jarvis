@@ -128,12 +128,44 @@ async def client_sheet(caller: Caller) -> str:
     erp = ErpClient("voice_agent", caller.erp_name)
     try:
         client, context = await asyncio.wait_for(
-            asyncio.gather(erp.get(f"/api/clients/{enc(caller.client_id)}"), erp.get("/api/context/for", {"entityType": "client", "id": caller.client_id})),
+            asyncio.gather(
+                erp.get(f"/api/clients/{enc(caller.client_id)}"),
+                erp.get("/api/context/for", {"entityType": "client", "id": caller.client_id}),
+            ),
             SHEET_TIMEOUT_S,
         )
     except (ErpError, TimeoutError, KeyError, ValueError) as e:
         print(f"[preload] fiche {caller.client_id} indisponible ({type(e).__name__}: {e})", flush=True)
         return ""
+    # Seasonal clients (e.g. mountain restaurants) have empty 60-day `usual`: derive from latest delivered/invoiced orders
+    if not client.get("usual"):
+        try:
+            orders_res = await asyncio.wait_for(erp.get("/api/orders", {"clientId": caller.client_id, "limit": 5}), SHEET_TIMEOUT_S)
+            orders = orders_res if isinstance(orders_res, list) else orders_res.get("items", [])
+            hist = [o for o in orders if o.get("status") in ("delivered", "invoiced", "confirmed")][:3]
+            if hist:
+                details = await asyncio.wait_for(
+                    asyncio.gather(*(erp.get(f"/api/orders/{enc(o['id'])}") for o in hist)),
+                    SHEET_TIMEOUT_S,
+                )
+                agg: dict[str, dict] = {}
+                for od in details:
+                    for ln in (od or {}).get("lines") or []:
+                        pid = ln.get("productId")
+                        if not pid:
+                            continue
+                        cur = agg.setdefault(pid, {"productId": pid, "productName": ln.get("productName", pid), "unit": ln.get("unit", "kg"), "tot": 0.0, "n": 0})
+                        cur["tot"] += float(ln.get("qty") or 0)
+                        cur["n"] += 1
+                client = {
+                    **client,
+                    "usual": [
+                        {"productId": v["productId"], "productName": v["productName"], "unit": v["unit"], "avgQty": round(v["tot"] / max(1, v["n"]), 1)}
+                        for v in sorted(agg.values(), key=lambda x: -x["n"])[:8]
+                    ],
+                }
+        except Exception:
+            pass
     text = build_sheet(client, context, caller.role)
     _cache[key] = (time.monotonic(), text)
     return text

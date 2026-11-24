@@ -1,30 +1,30 @@
 ---
 layout: columns
-outcome: "Objectif : zero ressaisie, zero promesse hors stock, reponse en temps de conversation."
+outcome: "A 5 h du matin, chaque seconde d'attente et chaque erreur de saisie se paient cash."
 ---
 
-# Le goulot du matin : 5 h a 9 h chez Alpes Restauration
+# 5 h 02 a Grenoble : le coup de feu avant l'aube
 
-> Qui appelle, quel gain, et pourquoi la voix s'impose face a un formulaire
+> Le telephone reste le canal numero 1 : la voix doit aller plus vite que le stylo, sans jamais inventer
 
 ## Pour qui et quand {emerald}
 
-- Commercial et ADV entre 5 h et 9 h du matin
-- Mains prises entre camions, chambres froides et appels courts
-- 94 clients CHR en montagne (Oisans, Vercors, stations)
+- Commerciaux et ADV entre 5 h et 9 h du matin
+- Mains prises entre quais, chambres froides et appels en rafale
+- 94 clients CHR de montagne (Oisans, Vercors, stations)
 
-## Quel gain metier {violet}
+## Ce que ca coute aujourd'hui {violet}
 
-- Telephone = 38 % des commandes sur 12 mois (canal n°1)
-- Fin de la double saisie vocale puis manuelle dans l'ERP
-- Arret des erreurs couteuses : rupture, client bloque, hors saison
+- 38 % des commandes arrivent par telephone (canal n°1)
+- Double saisie systematique : carnet papier puis retranscription ERP
+- Trois pieges fatals : rupture, client bloque, station fermee hors saison
 
-## Pourquoi la voix {amber}
+## Pourquoi la voix proactive {amber}
 
-- Le client appelle deja avec ses habitudes et urgences
-- La voix supprime l'ecran entre l'appelant et l'ERP
-- Condition : rester sous le seuil de conversation et verifier avant d'ecrire
+- Le chef appelle tard ou a l'aube pour commander « comme d'hab »
+- La voix abolit l'ecran entre la cuisine et l'ERP
+- Condition absolue : latence de conversation et garde-fous deterministes
 
 ## Notes
 
-Chez Alpes Restauration, 38 % des commandes arrivent par telephone entre cinq heures et neuf heures. Le vendeur a les mains prises, les chefs parlent vite avec leur jargon savoyard, et les erreurs coutent cher : promettre du Beaufort en rupture ou livrer une station fermee en decembre. La voix s'impose parce que l'appelant parle deja, a condition que le systeme anticipe et protege l'ERP.
+A cinq heures du matin chez Alpes Restauration, 38 % des commandes tombent au telephone. Les chefs parlent vite, utilisent leur jargon savoyard, et le commercial note sur papier avant de tout ressaisir. Une seule erreur, comme promettre du Beaufort en rupture ou livrer une station fermee le premier decembre, coute la marge de la tournee. La voix n'est viable que si elle est proactive et sure.

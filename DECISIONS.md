@@ -296,14 +296,16 @@ Plutôt que d'envoyer chaque micro-décision au gros modèle conversationnel (2�
 
 | Primitive | Rôle | Latence live mesurée (`ai`) |
 |---|---|---|
-| `route_turn` | Classe le tour (`social` / `simple_read` / `order_write`) pour éviter les outils sur les salutations/remerciements | **193,8 ms** |
+| `route_turn` | Classe le tour (`social` / `simple_read` / `order_write`) pour éviter les outils sur les salutations/remerciements | **158,4–193,8 ms** (affiché en direct sur la puce UI **`Jev`** + **`Route Jev`**) |
 | `disambiguate` | Tranche entre candidats produits/clients proches du lexique | **162,3 ms** |
 | `confirm_action` | Porte booléenne `is_yes` pour confirmer une commande ou apprendre un terme | **131,0 ms** |
 | `score_claim` | Évalue la plausibilité d'une affirmation orale (remise, délai, qualité) avant trace ERP | **126,2 ms** |
 
+Chaque tour vocal ou tapé sur `/voice` collecte la latence Jev mesurée (`timings.jevMs`) et l'intention classifiée (`timings.jevRoute`, ex. `order:write`, `order:read_only`) et les affiche sur la ligne de puces du tour ainsi que dans la barre **Latence moyenne** et dans les logs `[turn]`. L'endpoint `GET /ai/jev/stats` expose en outre les centiles `p50_ms` / `p90_ms` cumulés par primitive.
+
 ### 7.2 Garde-fous de plausibilité dans le backend (`apps/backend/app/services/orders.py`)
 
-Les règles de bon sens métier vivent dans le **backend**, jamais dans le prompt seul : à la création ou modification d'une commande (`POST /api/orders`, `POST /api/orders/{id}/lines`), le service retourne un champ `warnings[]` structuré :
+Les règles de bon sens métier vivent dans le **backend**, jamais dans le prompt seul : à la création ou modification d'une commande (`POST /api/orders`, `POST /api/orders/{id}/lines`), le service retourne un champ `warnings[]` structuré, **affiché en bandeau ambre directement dans la carte d'outil (`ToolRow`) sur `/voice` et `Assistant`** et obligatoirement cité par l'agent avant confirmation :
 - `season_closed` : détecte une date de livraison hors fenêtre saisonnière du client (ex. *Le Refuge Payet*, ouvert mi-décembre → mi-avril). Calibré sur **24 141 commandes historiques** : **0,01 %** de faux positifs. Vérifié en live sur `CMD-2026-007300` (200 kg de frites le `2026-12-01` → alerte `season_closed` renvoyée).
 - `unusual_quantity` : quantité `> 2,5 × p90` historique du client sur ce produit (**0,001 %** de faux positifs sur **166 273 lignes**).
 - `credit_alert` / `no_substitution` : remonte immédiatement l'état d'encours ou la préférence stricte sans bloquer l'enregistrement du brouillon.

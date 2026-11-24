@@ -78,8 +78,8 @@ def fig_architecture() -> None:
 
     bot_boxes = [
         (0.15, 2.75, "Identite verifiee", "5 roles (client, supplier,\nmanager, admin) + preload", "emerald_soft", "emerald"),
-        (3.20, 2.75, "Resolveur phonetique", "2,5 ms · n-grams FR\napprend si confirme", "emerald_soft", "emerald"),
-        (6.25, 2.65, "Jev System One", "Routage, disambig,\nporte confirm is_yes", "amber_soft", "amber"),
+        (3.20, 2.75, "Resolveur phonetique", "2,2 ms · n-grams FR\napprend si confirme", "emerald_soft", "emerald"),
+        (6.25, 2.65, "Jev System One", "126-194 ms · route, disambig,\nis_yes, claim + puce UI", "amber_soft", "amber"),
         (9.20, 2.65, "Backend ERP SQLite", "Regles metier, warnings\nmemoire de sessions", "surface", "emerald"),
     ]
     for x, w, title, sub, fill, edge in bot_boxes:
@@ -238,8 +238,8 @@ def fig_ui_proof() -> None:
 
     assets = SCRIPTS.parent / "assets"
     specs = [
-        ("ui_client_dash.png", 0.05, 0.55, 3.85, "1. Dashboard Client IA (Payet)", "Synthese live + habitudes cliquables -> Voix"),
-        ("ui_voice_chat.png", 4.08, 0.55, 3.85, "2. Session unifiee Voix <-> Assistant", "Tour vocal puis suite exacte en texte (6 ms)"),
+        ("ui_client_dash.png", 0.05, 0.55, 3.85, "1. Dashboard Client IA (Payet)", "Briefing LLM live + 4 cartes rotatives -> Voix / Chat"),
+        ("ui_voice_chat.png", 4.08, 0.55, 3.85, "2. Voix + Puce Jev 158 ms + Warning", "Alerte season_closed + suite live dans l'Assistant"),
         ("ui_admin_accounts.png", 8.11, 0.55, 3.85, "3. Auth 5 roles & Admin unique", "Invariant HTTP 409 + attribution verifiee"),
     ]
     fig, ax = figkit.canvas(W_FULL, H_FULL)

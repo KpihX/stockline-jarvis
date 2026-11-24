@@ -1,30 +1,30 @@
 ---
 layout: columns
-outcome: "Chaque couche transforme l'agent d'un repondeur reactif en copilote proactif fiable."
+outcome: "Separer le reflexe instantane (code + Jev 158 ms) du raisonnement conversationnel (LLM)."
 ---
 
-# Cinq couches de proactivite bout en bout
+# Cinq couches de proactivite : du reflexe a la preuve
 
-> Anticiper a chaque etape : avant l'appel, pendant le tour, et apres la validation
+> Un copilote qui prepare le terrain avant l'appel, agit pendant l'ecoute et verifie avant d'ecrire
 
 ## 1-2. Precharger et Anticiper {emerald}
 
-- Identite verifiee charge fiche, habitudes et préférences avant le 1er mot
+- Identite verifiee charge fiche, habitudes et panier saisonnier a l'ouverture
 - Filler precoce des le transcript final + annonce outil anticipee
 - Jev System One route, desambiguise et valide oui/non en 126-194 ms
 
 ## 3-4. Alerter et Apprendre {violet}
 
 - Regles metier deterministes cote backend (champ warnings structure)
-- Resolveur phonetique 2,2 ms rattrape les homophones sans LLM
-- Apprentissage vocabulaire bloque sauf preuve reelle (oui, epellation, commande)
+- Resolveur phonetique 2,2 ms rattrape les homophones sans couter un tour LLM
+- Apprentissage vocabulaire verrouille sur preuve reelle (oui, epellation, commande)
 
 ## 5. Unifier l'experience {blue}
 
-- Tableau de bord personnalise et aide par l'IA par profil
-- Suggestions cliquables qui lancent directement Voix ou Assistant
-- Memoire SQLite unique partagee entre Voix et Assistant texte
+- Tableau de bord aide par l'IA et adapte a chacun des 5 profils
+- Cartes d'actions rotatives qui lancent directement Voix ou Assistant
+- Memoire SQLite unique : commencer a la voix, finir par ecrit sans rupture
 
 ## Notes
 
-Notre architecture repose sur cinq couches de proactivite. Avant meme le premier mot, le systeme precharge la fiche client et les habitudes. Pendant le tour, un filler precoce et Jev reduisent l'attente percue. Cote backend, des regles deterministes detectent hors-saison et quantites anormales. Le lexique n'apprend qu'apres confirmation prouvee. Enfin, Dashboard, Voix et Assistant partagent la meme session persistante.
+Pour rendre l'agent réellement proactif, nous avons separe le reflexe du raisonnement sur cinq couches. Avant le premier mot, la fiche client et ses habitudes saisonnieres sont prechargees. Des la fin de parole, le filler precoce et Jev System One partent en parallele. Cote serveur, le resolveur phonetique et les warnings backend verrouillent la justesse. Enfin, Dashboard, Voix et Assistant partagent la meme memoire SQLite.

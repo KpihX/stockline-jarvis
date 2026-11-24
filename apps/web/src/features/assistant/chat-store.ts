@@ -83,14 +83,20 @@ export const chat = {
   async send(text: string) {
     const content = text.trim();
     if (!content || state.busy) return;
+    // Mark busy immediately so concurrent syncFromActive() when opening the panel never clobbers the in-flight send.
+    set({ busy: true, unavailable: false });
     const sid = await sessionsStore.ensure("chat");
+    const detail = sessionsStore.get().activeDetail;
+    const baseItems = (state.sessionId !== sid || state.items.length === 0) && detail && detail.id === sid
+      ? itemsFromDetail(detail)
+      : state.items;
     const assistantId = uid();
     set({
       sessionId: sid,
       busy: true,
       unavailable: false,
       items: [
-        ...state.items,
+        ...baseItems,
         { id: uid(), role: "user", text: content, at: Date.now() },
         { id: assistantId, role: "assistant", parts: [], status: "streaming", at: Date.now() },
       ],

@@ -387,7 +387,7 @@ class VoiceConnection:
                     case ToolResultEvent(name=name, ok=ok, ms=ms, result=result):
                         step_text = ""
                         sessions.note_commands(conv, result)  # ids of orders created, for the session list / recall
-                        await self.send(AgentToolMessage(name=name, ok=ok, ms=ms))
+                        await self.send(AgentToolMessage(name=name, ok=ok, ms=ms, result=result))
                     case DoneEvent(usage=done_usage):
                         usage = done_usage
                     case ErrorEvent(message=message):
@@ -406,6 +406,7 @@ class VoiceConnection:
                 timings.total_ms = int((speaker.first_byte_at - t0) * 1000 + 0.5)
             if speaker.answer_at:
                 timings.answer_ms = int((speaker.answer_at - t0) * 1000 + 0.5)
+            timings.jev_ms, timings.jev_route = await jev_hooks.collect_turn_jev(conv)
             stt_seconds = utterance.audio_seconds if utterance else 0.0
             cost = estimate_cost(usage, stt_seconds, speaker.tts_chars, llm_model=llm.model, stt=get_stt_client().name, tts=speaker.tts.name)
             log_turn(timings, cost)
@@ -571,8 +572,9 @@ class Speaker:
 
 def log_turn(timings: TurnTimings, cost: TurnCost) -> None:
     """One line per turn in the service logs: what to read when comparing techniques."""
+    jev_part = f" jev={timings.jev_ms}ms({timings.jev_route or '-'})" if timings.jev_ms is not None else ""
     print(
-        f"[turn] stt={timings.stt_ms}ms llm1={timings.llm_first_token_ms}ms tool1={timings.first_tool_call_ms}ms llm={timings.llm_total_ms}ms "
+        f"[turn] stt={timings.stt_ms}ms{jev_part} llm1={timings.llm_first_token_ms}ms tool1={timings.first_tool_call_ms}ms llm={timings.llm_total_ms}ms "
         f"ttsFirst={timings.tts_first_byte_ms}ms total={timings.total_ms}ms answer={timings.answer_ms}ms firstSound={timings.first_sound_kind} | "
         f"tokens in={cost.llm_input_tokens} out={cost.llm_output_tokens} cacheRead={cost.llm_cache_read_tokens} cacheWrite={cost.llm_cache_creation_tokens} "
         f"stt={cost.stt_seconds}s tts={cost.tts_chars}chars ≈ ${cost.estimated_usd} (€{cost.estimated_eur}, estimate)",

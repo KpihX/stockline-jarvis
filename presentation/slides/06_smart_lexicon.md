@@ -1,13 +1,13 @@
 ---
 layout: figure
 figure: lexicon_recall
-caption: "Evaluation hors ligne sur vrais transcripts (scripts/bench/vocab_eval.py) : 0 faux positif sur 80 + 12 cas."
+caption: "Apprendre sans jamais deviner : une entree n'est ecrite que si la conversation prouve un oui ou une epellation."
 ---
 
-# Smart : 62/62 entites metier sans faux positif
+# Smart : 62/62 entites metier et 0 faux positif
 
-> Un resolveur phonetique deterministe de 2,2 ms rattrape les quasi-homophones apres le STT
+> Rattraper « Refuge Paillet » et « vin blanc a Promont » en 2,2 ms avant meme d'appeler le LLM
 
 ## Notes
 
-Les erreurs STT les plus dangereuses sont les homophones : Refuge Paillet pour Payet, a Promont pour Apremont, Liglou pour L'Igloo. Plutot que de reecrire le transcript, un resolveur phonetique en pur Python propose les candidats avec score et marge en 2,2 millisecondes. Il fait monter Soniox de 60 a 62 sur 62, avec zero faux positif sur 80 transcripts et 12 pieges negatifs. Et l'apprentissage exige une preuve relue dans la conversation.
+Au telephone, un chef dit Refuge Paillet pour Payet, ou vin blanc a Promont pour Apremont. Notre resolveur phonetique francais, en pur Python et sans dependance, inspecte les groupes de mots en 2,2 millisecondes. Sans jamais reecrire le transcript brut, il injecte les candidats avec leur score et fait passer Soniox de 60 a 62 sur 62, avec zero faux positif sur 80 transcripts. Si une mention reste ambigue, Jev tranche en 162 millisecondes.

@@ -166,8 +166,8 @@ export function useVoiceSession() {
             else tools.push({ id: `${t.id}-${tools.length}`, name: m.name, args: m.args });
           } else {
             const i = tools.findIndex((x) => x.name === m.name && x.ok === undefined);
-            if (i >= 0) tools[i] = { ...tools[i], ok: m.ok, ms: m.ms };
-            else tools.push({ id: `${t.id}-${tools.length}`, name: m.name, ok: m.ok, ms: m.ms });
+            if (i >= 0) tools[i] = { ...tools[i], ok: m.ok, ms: m.ms, result: m.result };
+            else tools.push({ id: `${t.id}-${tools.length}`, name: m.name, ok: m.ok, ms: m.ms, result: m.result });
           }
           return { ...t, agent: { ...t.agent, tools, at: t.agent.at ?? Date.now() } };
         });
@@ -200,6 +200,7 @@ export function useVoiceSession() {
         audioMime.current = undefined;
         currentTurn.current = undefined;
         void sessionsStore.refresh();
+        void import("./chat-store").then(({ chat }) => chat.syncFromActive());
         break;
       case "error":
         setLastError(m.message);
@@ -282,7 +283,8 @@ export function useVoiceSession() {
         else loaded.push({ id: ++turnSeq.current, caller: { text: "…", at: Date.now(), status: "final", typed: true }, agent: { text: m.text, tools: [], done: true } });
       }
     }
-    setTurns(loaded);
+    // Never clobber an active turn or turns already added while the fetch was in flight.
+    setTurns((prev) => (currentTurn.current != null || prev.length > 0 ? prev : loaded));
   }, []);
 
   const openSession = useCallback(async (id: string) => {
@@ -290,6 +292,7 @@ export function useVoiceSession() {
     currentTurn.current = undefined;
     sessionId.current = id;
     sessionsStore.setActiveId(id);
+    setTurns([]);
     await hydrateSession(id);
     send({ type: "start", sessionId: id, token: auth.token() ?? undefined, ...callerWire(caller.get()) });
   }, [hydrateSession, send, stopPlayback]);
@@ -303,16 +306,6 @@ export function useVoiceSession() {
       }
     });
   }, [activity, conn, openSession]);
-
-  // Hydrate once on initial ready if activeId already had history (e.g., started in Assistant).
-  const hydratedInitial = useRef<string>();
-  useEffect(() => {
-    const sid = providers?.sessionId;
-    if (conn === "ready" && sid && hydratedInitial.current !== sid) {
-      hydratedInitial.current = sid;
-      if (turns.length === 0) void hydrateSession(sid);
-    }
-  }, [conn, hydrateSession, providers?.sessionId, turns.length]);
 
   // ── Mic ──
   const openMic = useCallback(async (): Promise<MediaStream | undefined> => {
@@ -461,12 +454,23 @@ export function useVoiceSession() {
     }
   }, [send, stopPlayback]);
 
-  // If Dashboard/Suggestion redirected here with a prefilled prompt, send it automatically once WS is ready.
+  // Hydrate once on initial ready if activeId already had history, THEN send any pending voice prompt from Dashboard.
+  const hydratedInitial = useRef<string>();
   useEffect(() => {
-    if (conn !== "ready") return;
-    const pending = sessionsStore.consumePendingVoiceText();
-    if (pending) sendText(pending);
-  }, [conn, sendText]);
+    const sid = providers?.sessionId;
+    if (conn !== "ready" || !sid) return;
+    let cancelled = false;
+    void (async () => {
+      if (hydratedInitial.current !== sid) {
+        hydratedInitial.current = sid;
+        await hydrateSession(sid);
+      }
+      if (cancelled) return;
+      const pending = sessionsStore.consumePendingVoiceText();
+      if (pending) sendText(pending);
+    })();
+    return () => { cancelled = true; };
+  }, [conn, hydrateSession, providers?.sessionId, sendText]);
 
   return {
     conn, activity, mic, providers, turns, level, lastError, effectiveRole,

@@ -1,6 +1,6 @@
 /** Tool-call rendering shared by the Assistant panel and the Voice page: compact row, args summary, ERP links. */
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Check, Wrench, X } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, Wrench, X } from "lucide-react";
 import type { ActivityEvent } from "@kit/shared";
 import { cn } from "@/lib/cn";
 import { entityPath } from "@/lib/links";
@@ -103,16 +103,29 @@ export function resultSummary(t: ToolRun): string | undefined {
   return undefined;
 }
 
-/** Compact violet row: icon · tool name (mono) · args · links · ok/error · ms. */
+export function toolWarnings(t: ToolRun): { code: string; message: string }[] {
+  const r = t.result as Record<string, unknown> | undefined;
+  if (!r || Array.isArray(r) || typeof r !== "object") return [];
+  const ws = r.warnings;
+  if (!Array.isArray(ws)) return [];
+  return ws
+    .filter((w): w is { code?: unknown; message?: unknown } => !!w && typeof w === "object")
+    .map((w) => ({ code: String(w.code ?? "warning"), message: String(w.message ?? "") }))
+    .filter((w) => w.message.length > 0);
+}
+
+/** Compact violet row: icon · tool name (mono) · args · links · ok/error · ms (+ ERP warnings banner if any). */
 export function ToolRow({ t, className, onNavigate }: { t: ToolRun; className?: string; onNavigate?: () => void }) {
   const running = t.ok === undefined;
   const links = toolLinks(t);
   const summary = resultSummary(t);
+  const warnings = toolWarnings(t);
   return (
     <div
       className={cn(
         "group flex min-h-[26px] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[3px] border border-violet/20 bg-violet/[.05] px-2 py-1 text-[11.5px] animate-fade-in",
         t.ok === false && "border-destructive/30 bg-destructive/[.05]",
+        warnings.length > 0 && "border-warning/40",
         className,
       )}
       title={t.args ? JSON.stringify(t.args, null, 1) : undefined}
@@ -145,6 +158,19 @@ export function ToolRow({ t, className, onNavigate }: { t: ToolRun; className?: 
         </Link>
       ))}
       {t.ms != null ? <span className="num shrink-0 font-mono text-[10.5px] text-muted-foreground">{t.ms} ms</span> : null}
+      {warnings.map((w, idx) => (
+        <div
+          key={`${w.code}-${idx}`}
+          className="mt-0.5 flex w-full items-start gap-1.5 rounded-[3px] border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-foreground"
+        >
+          <AlertTriangle size={12} className="mt-[1px] shrink-0 text-warning" />
+          <span>
+            <span className="font-mono font-semibold text-warning">{w.code}</span>
+            {" · "}
+            {w.message}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

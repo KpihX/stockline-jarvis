@@ -1,13 +1,13 @@
 ---
 layout: figure
 figure: arch_pipeline
-caption: "Cascade chevauchee : chaque brique STT, LLM et TTS reste swappable via .env sans toucher au code metier."
+caption: "Zero boite noire : chaque tour affiche en direct ses puces STT, Jev, LLM, TTS, Cache et Cout."
 ---
 
-# Architecture temps reel et garde-fous serveur
+# Architecture : cascade temps reel et gardes serveur
 
-> Chevauchement vocal en haut, intelligence metier et securite deterministe en bas
+> Chevaucher les flux en haut pour la vitesse, verrouiller les decisions en bas par Jev et le code
 
 ## Notes
 
-Voici le pipeline complet. En haut, le flux temps reel chevauche les etapes : micro 100 ms pre-chauffe, Soniox avec vocabulaire client en tete, LLM avec cache de prompt de 27 mille tokens, ElevenLabs coupe a la premiere virgule et barge-in. En bas, quatre gardes serveur : identite verifiee a cinq roles, resolveur phonetique en deux millisecondes, Jev pour les micro-decisions, et backend SQLite qui porte toutes les regles.
+Notre architecture superpose deux lignes. En haut, la cascade vocale chevauchee : micro cadence a 100 millisecondes, Soniox biaise par le lexique du client, LLM avec cache de prompt, et ElevenLabs coupe dès la premiere virgule avec barge-in. En bas, les quatre moteurs de controle : authentification a cinq roles, resolveur phonetique en 2,2 millisecondes, Jev System One mesure sur chaque tour, et backend SQLite garant des regles metier.

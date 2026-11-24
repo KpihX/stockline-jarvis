@@ -1,19 +1,19 @@
 ---
 layout: split
 figure: security_and_rules
-caption: "Chaque regle est prouvee par tests unitaires (59 + 384) et verification navigateur live."
+caption: "Un modele de langage se persuade ; une table de droits et une regle backend ne se negocient pas."
 ---
 
-# Sur : regles deterministes et 5 roles authentifies
+# Sur : 5 roles verifies, Jev et alertes ERP en direct
 
-> Audit initial : un inconnu pouvait creer une commande ou usurper un client
+> Remplacer la confiance aveugle dans le prompt par des verrous serveur et des warnings calibres
 
-- Auth reelle scrypt + HMAC-SHA256 et connexion 1-clic de demo
-- 5 roles verrouilles cote serveur : admin, manager, client, supplier, unknown
-- Invariant 1 seul administrateur garanti par code (HTTP 409)
-- Warnings backend : season_closed (0,01 % FP) et unusual_quantity (0,001 % FP)
-- Jev System One : route 194 ms, desambiguise 162 ms, confirme 131 ms
+- Auth signee scrypt + HMAC-SHA256 et connexion 1-clic (8 comptes demo)
+- 5 roles cloisonnes : admin unique (HTTP 409), manager, client, supplier, unknown
+- Warnings ERP affiches et dits : season_closed (0,01 % FP) et unusual_quantity
+- Jev System One : route (158-194 ms), disambig (162 ms), confirm is_yes (131 ms)
+- Score Jev (126 ms) : isole toute remise orale en « non verifie »
 
 ## Notes
 
-Lors de notre premier audit en direct, un appelant anonyme pouvait obtenir le top clients ou se faire passer pour Le Refuge Payet. Nous avons donc remplace l'identite declaree par une vraie authentification a cinq roles, avec connexion demo en un clic et un administrateur unique protege par HTTP 409. Cote metier, le backend remonte automatiquement les alertes de saison fermee et de quantite hors norme, calibrees sur 24 mille commandes.
+Un LLM seul peut se laisser convaincre par un appelant qui pretend etre un client ou reclame 60 pour cent de remise. Nous avons donc verrouille cinq roles authentifies cote serveur, avec un administrateur unique protege par HTTP 409. Avant toute confirmation de commande, Jev verifie le oui explicite en 131 millisecondes. Et lors de la creation du brouillon, le backend calcule les alertes de saison fermee et de quantite anormale, affichees en ambre et citees a voix haute.

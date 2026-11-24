@@ -87,6 +87,8 @@ export interface TurnTimings {
   firstToolCallMs?: number; // start of the agent → first tool call announced by the model
   firstSoundKind?: "filler" | "answer"; // what totalMs measures: a canned wait phrase, or the real answer
   answerMs?: number; // end of caller speech → first byte of the REAL answer (= totalMs when there is no filler)
+  jevMs?: number; // TypeSafe Jev decision latency on this turn (parallel route / disambig / confirm / claim)
+  jevRoute?: string; // Jev classified intent / decision (e.g. order, stock, price, trivial)
 }
 
 /** What a voice turn consumed + an ESTIMATED price (constants in apps/ai/app/pricing.py: list prices, not an invoice). */
@@ -107,7 +109,7 @@ export type VoiceServerMessage =
   // `stable` = its leading part made of final words (won't change). Then once final=true: what the agent answers.
   | { type: "transcript"; track: "caller"; text: string; final: boolean; stable?: string }
   | { type: "agent_text"; delta: string }
-  | { type: "agent_tool"; name: string; ok?: boolean; ms?: number; args?: Record<string, unknown> } // up to 3 per tool: started (name only) → called (args) → done (ok, ms)
+  | { type: "agent_tool"; name: string; ok?: boolean; ms?: number; args?: Record<string, unknown>; result?: unknown } // up to 3 per tool: started (name only) → called (args) → done (ok, ms, result)
   | { type: "agent_audio_start"; mime: string } // binary frames follow
   | { type: "agent_audio_end" }
   | { type: "agent_done"; text: string; timings: TurnTimings; cost?: TurnCost }

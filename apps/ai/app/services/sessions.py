@@ -213,7 +213,14 @@ def detail(sid: str, caller: Caller = UNKNOWN) -> dict | None:
     facts = conv.facts or {}
     messages = []
     for m in conv.history:
-        text = f"{m.name or 'outil'} : {clip(m.content, 160)}" if m.role == "tool" else clip(m.content, 320)
+        if m.role == "user":
+            raw_u = (m.content or "").split("\n\n[", 1)[0].strip()
+            text = raw_u if len(raw_u) <= 1200 else raw_u[:1199] + "…"
+        elif m.role == "assistant":
+            raw_a = (m.content or "").strip()
+            text = raw_a if len(raw_a) <= 1800 else raw_a[:1799] + "…"
+        else:
+            text = f"{m.name or 'outil'} : {clip(m.content, 160)}"
         messages.append({"role": m.role, "text": text, "name": m.name})
     return {
         **s,

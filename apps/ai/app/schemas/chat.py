@@ -75,6 +75,8 @@ class TurnTimings(WireModel):
         None, description="What total_ms measures: a canned wait phrase played before the tools, or the real answer"
     )
     answer_ms: int | None = Field(None, description="End of caller speech → first byte of the real answer (= total_ms when there is no filler)")
+    jev_ms: int | None = Field(None, description="TypeSafe Jev decision latency on this turn (parallel route / disambig / confirm / claim)")
+    jev_route: str | None = Field(None, description="Jev classified intent / decision (e.g. order, stock, price, trivial)")
 
 
 class TurnCost(WireModel):

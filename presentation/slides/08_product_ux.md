@@ -1,13 +1,13 @@
 ---
 layout: figure
 figure: ui_proof
-caption: "Trois ecrans captures en direct : chaque profil a son tableau de bord IA, sa session unifiee et ses droits."
+caption: "Une seule conversation vivante : de la suggestion IA du Dashboard jusqu'a la Voix et au panneau Assistant."
 ---
 
 # Natural et Unifie : Dashboard IA, Voix et Assistant
 
-> Commencer sur le tableau de bord ou a la voix, continuer par ecrit sans rupture
+> La voix pour l'urgence du coup de feu, l'ecrit pour verifier les chiffres : une seule memoire
 
 ## Notes
 
-Voici l'interface reelle capturee sous Chrome. A gauche, le client Le Refuge Payet arrive sur son tableau de bord avec sa synthese IA, ses suggestions rotatives et ses huit produits habituels cliquables vers la Voix. Au centre, la session unifiee : une question posee a la voix sur la raclette se poursuit exactement dans le panneau Assistant sur le tarif negocie. A droite, la vue Comptes protege l'administrateur unique.
+Voici trois captures reelles de notre application. A gauche, le tableau de bord client du Refuge Payet genere un briefing IA en direct, quatre cartes d'action rotatives et ses huit produits habituels cliquables vers la Voix. Au centre, la commande piege du premier decembre affiche en direct l'alerte ambre season_closed, la puce Jev a 158 millisecondes, et se synchronise instantanement dans l'Assistant a droite. Enfin, la vue Comptes verouille l'admin unique.

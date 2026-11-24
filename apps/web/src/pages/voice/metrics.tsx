@@ -5,9 +5,10 @@ import { cn } from "@/lib/cn";
 import { SECTION_LABEL } from "@/ui";
 import type { VoiceTurn } from "@/features/assistant/useVoiceSession";
 
-type Key = Exclude<keyof TurnTimings, "firstSoundKind"> | "perceivedMs";
+type Key = Exclude<keyof TurnTimings, "firstSoundKind" | "jevRoute"> | "perceivedMs";
 const METRICS: { key: Key; label: string; title: string }[] = [
   { key: "sttMs", label: "STT", title: "Transcription de la parole de l'appelant" },
+  { key: "jevMs", label: "Jev", title: "Décision rapide TypeSafe Jev System One (routage, désambiguïsation, porte oui/non, plausibilité) exécutée en parallèle" },
   { key: "llmFirstTokenMs", label: "LLM 1er", title: "Premier token du modèle" },
   { key: "llmTotalMs", label: "LLM", title: "Modèle, outils compris" },
   { key: "ttsFirstByteMs", label: "TTS 1er", title: "Premier octet audio de la première phrase synthétisée (un filler en cache n'en compte pas)" },
@@ -58,6 +59,7 @@ export function TurnChips({ t }: { t: VoiceTurn }) {
         const ms = shown(t, m.key) ? value(t, m.key) : undefined;
         return ms == null ? null : <Chip key={m.key} k={m.key} label={m.label} ms={ms} title={m.title} />;
       })}
+      {t.timings?.jevRoute && <TextChip label="Route Jev" text={t.timings.jevRoute} title="Intention et mode d'outils classifiés par TypeSafe Jev System One" />}
       {t.timings?.firstSoundKind === "filler" && <TextChip label="1er son" text="filler" title="Le Total mesure une phrase d'attente pré-enregistrée, pas la réponse (voir « Réponse »)" />}
       {c?.llmCacheReadTokens != null && (
         <TextChip label="Cache" text={fmtTokens(c.llmCacheReadTokens)} title={`Tokens lus dans le cache de prompt (≈ 5 % du prix d'entrée). Lus : ${c.llmCacheReadTokens}, non cachés : ${c.llmInputTokens ?? 0}, écrits : ${c.llmCacheCreationTokens ?? 0}, sortie : ${c.llmOutputTokens ?? 0}`} />

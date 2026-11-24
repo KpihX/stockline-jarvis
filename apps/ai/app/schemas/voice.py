@@ -107,6 +107,7 @@ class AgentToolMessage(WireModel):
     ok: bool | None = None
     ms: int | None = None
     args: dict[str, Any] | None = None
+    result: Any | None = None
 
 
 class AgentAudioStartMessage(WireModel):

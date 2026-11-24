@@ -26,3 +26,18 @@ async def health() -> HealthResponse:
 async def tools() -> list[ToolInfo]:
     """The tools the agent exposes to the model (name, description, JSON schema)."""
     return [t.info for t in all_tools()]
+
+
+@router.get("/jev/stats")
+async def jev_stats() -> dict:
+    """Live measured Jev System One telemetry (p50/p90/count/errors per decision primitive)."""
+    from app.clients import get_jev_client
+    from app.services import jev_router
+
+    jev = get_jev_client()
+    return {
+        "enabled": jev is not None,
+        "model": settings.jev.model if jev is not None else None,
+        "timeoutMs": int(jev_router.JEV_TIMEOUT_S * 1000),
+        "stats": jev_router.latency_stats(),
+    }
