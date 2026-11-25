@@ -9,7 +9,7 @@ outcome: "Une commande lance tout (make setup) : passons maintenant a vos scenar
 
 ## Livrables et resilience {emerald}
 
-- Repo autonome (data/seed, make setup, DECISIONS.md, video 93 s)
+- Repo autonome (data/seed, make setup, DECISIONS.md, video 115 s)
 - Repli LLM agnostique : OpenCode Go -> NVIDIA Nemotron -> Claude
 - 59 tests backend + 391 tests IA + typecheck + 2 appels WhatsApp reels
 
